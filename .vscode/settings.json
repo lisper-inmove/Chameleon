@@ -1,0 +1,11 @@
+{
+    "cmake.configureOnOpen": true,
+    "cmake.configurePreset": "msvc-debug",
+    "cmake.buildPreset": "msvc-debug",
+    "cmake.testPreset": "msvc-debug",
+    "testMate.cpp.test.executables": [
+        "build-msvc-debug/**/*tests*.exe",
+        "build-msvc-release/**/*tests*.exe"
+    ],
+    "testMate.cpp.test.envFile": "${workspaceFolder}/.vscode/testmate.env"
+}

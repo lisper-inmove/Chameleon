@@ -1,0 +1,45 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug appChameleon (MSVC Debug)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-msvc-debug/Debug/appChameleon.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build-msvc-debug/Debug",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\bin;F:\\codes\\third_party_debug\\opencv\\x64\\vc18\\bin;${env:PATH}"
+                },
+                {
+                    "name": "QML2_IMPORT_PATH",
+                    "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\qml"
+                }
+            ],
+            "preLaunchTask": "CMake: build (Debug)"
+        },
+        {
+            "name": "Debug appChameleon (MSVC Release)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-msvc-release/Release/appChameleon.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build-msvc-release/Release",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\bin;F:\\codes\\third_party\\opencv\\x64\\vc18\\bin;${env:PATH}"
+                },
+                {
+                    "name": "QML2_IMPORT_PATH",
+                    "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\qml"
+                }
+            ],
+            "preLaunchTask": "CMake: build (Release)"
+        }
+    ]
+}

@@ -1,0 +1,72 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 28,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "msvc-debug",
+            "displayName": "MSVC 2026 Debug",
+            "generator": "Visual Studio 18 2026",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/build-msvc-debug",
+            "cacheVariables": {
+                "CMAKE_PREFIX_PATH": "C:/Software/Qt/6.12.0/msvc2022_64",
+                "CHAMELEON_THIRD_PARTY_DIR": "F:/codes/third_party_debug",
+                "CMAKE_CONFIGURATION_TYPES": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "msvc-release",
+            "displayName": "MSVC 2026 Release",
+            "generator": "Visual Studio 18 2026",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/build-msvc-release",
+            "cacheVariables": {
+                "CMAKE_PREFIX_PATH": "C:/Software/Qt/6.12.0/msvc2022_64",
+                "CHAMELEON_THIRD_PARTY_DIR": "F:/codes/third_party",
+                "CMAKE_CONFIGURATION_TYPES": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "msvc-debug",
+            "configurePreset": "msvc-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "msvc-release",
+            "configurePreset": "msvc-release",
+            "configuration": "Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "msvc-debug",
+            "configurePreset": "msvc-debug",
+            "configuration": "Debug",
+            "environment": {
+                "PATH": "C:/Software/Qt/6.12.0/msvc2022_64/bin;F:/codes/third_party_debug/opencv/x64/vc18/bin;$penv{PATH}"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "msvc-release",
+            "configurePreset": "msvc-release",
+            "configuration": "Release",
+            "environment": {
+                "PATH": "C:/Software/Qt/6.12.0/msvc2022_64/bin;F:/codes/third_party/opencv/x64/vc18/bin;$penv{PATH}"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+# Chameleon runtime configuration
+app:
+  title: "Chameleon"
+  window:
+    width: 1200
+    height: 800

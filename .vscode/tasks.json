@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: build (Debug)",
+            "type": "process",
+            "command": "C:\\Software\\cmake\\bin\\cmake.exe",
+            "args": [
+                "--build",
+                "--preset",
+                "msvc-debug"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "CMake: build (Release)",
+            "type": "process",
+            "command": "C:\\Software\\cmake\\bin\\cmake.exe",
+            "args": [
+                "--build",
+                "--preset",
+                "msvc-release"
+            ],
+            "group": "build",
+            "problemMatcher": "$msCompile"
+        }
+    ]
+}

@@ -1,0 +1,99 @@
+# ---------------------------------------------------------------------------
+# Qt 6 + CMake project .gitignore
+# ---------------------------------------------------------------------------
+
+# CMake build directories (all presets: build-msvc-debug, build-msvc-release,
+# build-mingw, builds, cmake-build-*, ...)
+/build/
+/build*/
+/cmake-build-*/
+/out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+Makefile
+compile_commands.json
+*.ninja
+.ninja_deps
+.ninja_log
+
+# User-local CMake presets (CMakePresets.json itself IS tracked)
+CMakeUserPresets.json
+
+# Qt Creator
+.qtcreator/
+*.pro.user*
+CMakeLists.txt.user*
+*.qbs.user*
+/.qmake.cache
+/.qmake.stash
+
+# Qt generated files
+.moc/
+.obj/
+.pch/
+.rcc/
+.uic/
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*_resource.rc
+*.moc
+*.prl
+*.qm
+
+# Visual Studio (IDE files; generated solutions live in ignored build dirs)
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.*
+*.suo
+*.user
+*.vc.db
+*.opensdf
+*.sdf
+*.ipch
+
+# VSCode (project settings in .vscode/ are tracked)
+.vscode/ipch/
+
+# clangd
+.cache/
+.clangd/
+
+# Binaries
+*.a
+*.dll
+*.dylib
+*.exe
+*.so
+*.so.*
+*.lib
+*.d
+*.debug
+*.app
+
+# Compiler/linker intermediate files
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.pch
+*.exp
+
+# Editor backup files
+*~
+*.swp
+*.orig
+*.rej
+*.*#
+.#*
+
+# OS generated
+Thumbs.db
+.DS_Store
+.directory
