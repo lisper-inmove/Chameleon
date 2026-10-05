@@ -14,10 +14,12 @@ target_sources(chameleon_lib PRIVATE
     include/app/app_state.h
     include/config/config_manager.h
     include/ui/main_window.h
+    include/ui/image_viewer_widget.h
     include/utils/file_utils.h
     src/app/app_state.cc
     src/config/config_manager.cc
     src/ui/main_window.cc
+    src/ui/image_viewer_widget.cc
     src/utils/file_utils.cc
 )
 
