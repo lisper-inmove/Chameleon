@@ -13,11 +13,15 @@ add_library(chameleon_lib STATIC)
 target_sources(chameleon_lib PRIVATE
     include/app/app_state.h
     include/config/config_manager.h
+    include/ui/filter_panel.h
+    include/ui/histogram_panel.h
     include/ui/main_window.h
     include/ui/image_viewer_widget.h
     include/utils/file_utils.h
     src/app/app_state.cc
     src/config/config_manager.cc
+    src/ui/filter_panel.cc
+    src/ui/histogram_panel.cc
     src/ui/main_window.cc
     src/ui/image_viewer_widget.cc
     src/utils/file_utils.cc

@@ -19,6 +19,7 @@ add_executable(chameleon_tests
     tests/file_utils_test.cc
     tests/app_state_test.cc
     tests/image_viewer_test.cc
+    tests/main_window_test.cc
 )
 
 target_compile_definitions(chameleon_tests PRIVATE

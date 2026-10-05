@@ -1,0 +1,149 @@
+#include <gtest/gtest.h>
+
+#include <QAction>
+#include <QApplication>
+#include <QDockWidget>
+#include <QLabel>
+#include <QListWidget>
+#include <QMenu>
+#include <QMenuBar>
+#include <QPalette>
+#include <QStatusBar>
+
+#include "app/app_state.h"
+#include "ui/image_viewer_widget.h"
+#include "ui/main_window.h"
+
+using chameleon::AppState;
+using chameleon::ImageViewerWidget;
+using chameleon::MainWindow;
+
+class MainWindowTest : public ::testing::Test
+{
+protected:
+    static void SetUpTestSuite()
+    {
+        s_window = new MainWindow;
+        s_window->resize(1200, 800);
+        s_window->show();
+        QCoreApplication::processEvents();
+    }
+
+    static void TearDownTestSuite()
+    {
+        delete s_window;
+        s_window = nullptr;
+    }
+
+    void SetUp() override
+    {
+        auto *s = AppState::instance();
+        while (!s->images().isEmpty())
+            s->closeImage(0);
+        s->setZoomMode(AppState::Fit);
+        QCoreApplication::processEvents();
+    }
+
+    QLabel *label(const char *name)
+    {
+        return s_window->findChild<QLabel *>(name);
+    }
+
+    QAction *action(const char *name)
+    {
+        return s_window->findChild<QAction *>(name);
+    }
+
+    static MainWindow *s_window;
+};
+
+MainWindow *MainWindowTest::s_window = nullptr;
+
+TEST_F(MainWindowTest, HasMenusToolbarDocksAndViewer)
+{
+    const auto menus = s_window->menuBar()->findChildren<QMenu *>();
+    QStringList titles;
+    for (auto *m : menus)
+        titles << m->title();
+    EXPECT_TRUE(titles.contains("文件(&F)"));
+    EXPECT_TRUE(titles.contains("视图(&V)"));
+    EXPECT_TRUE(titles.contains("帮助(&H)"));
+
+    EXPECT_NE(s_window->findChild<QListWidget *>("thumbnailList"), nullptr);
+    EXPECT_NE(s_window->findChild<QDockWidget *>("leftDock"), nullptr);
+    EXPECT_NE(s_window->findChild<QDockWidget *>("rightDock"), nullptr);
+    EXPECT_NE(s_window->findChild<ImageViewerWidget *>("imageViewer"), nullptr);
+    EXPECT_NE(action("openAction"), nullptr);
+    EXPECT_NE(action("saveAction"), nullptr);
+    EXPECT_NE(action("fitAction"), nullptr);
+    EXPECT_NE(action("actualAction"), nullptr);
+}
+
+TEST_F(MainWindowTest, EmptyStateShowsHintAndDisablesActions)
+{
+    auto *fn = label("statusFileName");
+    ASSERT_NE(fn, nullptr);
+    EXPECT_EQ(fn->text().toStdString(), "未打开图片");
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::NoImage);
+
+    EXPECT_FALSE(action("saveAction")->isEnabled());
+    EXPECT_FALSE(action("closeAction")->isEnabled());
+    EXPECT_FALSE(action("fitAction")->isEnabled());
+    EXPECT_FALSE(action("actualAction")->isEnabled());
+}
+
+TEST_F(MainWindowTest, OpenImageUpdatesStatusBarAndEnablesActions)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
+
+    EXPECT_EQ(label("statusFileName")->text().toStdString(), "test_image.png");
+    EXPECT_EQ(label("statusSize")->text().toStdString(), "640 × 400");
+    EXPECT_EQ(label("statusFormat")->text().toStdString(), "PNG");
+    EXPECT_TRUE(action("saveAction")->isEnabled());
+    EXPECT_TRUE(action("fitAction")->isEnabled());
+}
+
+TEST_F(MainWindowTest, ClosingAllImagesReturnsToEmptyState)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    AppState::instance()->closeImage(0);
+    QCoreApplication::processEvents();
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::NoImage);
+    EXPECT_EQ(label("statusFileName")->text().toStdString(), "未打开图片");
+    EXPECT_FALSE(action("saveAction")->isEnabled());
+}
+
+TEST_F(MainWindowTest, ViewerRendersImagePixels)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    const QImage shot = viewer->grab().toImage();
+    int orange = 0;
+    for (int y = 0; y < shot.height(); ++y) {
+        for (int x = 0; x < shot.width(); ++x) {
+            const QColor c = shot.pixelColor(x, y);
+            if (c.red() > 200 && c.green() > 120 && c.green() < 190 && c.blue() < 80)
+                ++orange;
+        }
+    }
+    EXPECT_GT(orange, 100);
+}
+
+TEST_F(MainWindowTest, DarkThemeChangesPalette)
+{
+    AppState::instance()->setTheme("dark");
+    QCoreApplication::processEvents();
+    EXPECT_LT(QApplication::palette().color(QPalette::Window).lightness(), 100);
+    AppState::instance()->setTheme("system");
+}
