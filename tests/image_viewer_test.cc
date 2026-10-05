@@ -90,16 +90,12 @@ TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
     ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
     AppState::instance()->setZoomMode(AppState::Actual);  // scale 1.0
 
-    // Image 640x400 at scale 1 in an 800x600 viewport -> top-left (80, 100)
-    const QPoint cursor(400, 300);
+    // Pick an image point and zoom with the cursor exactly on it: the
+    // point's view position must not move (layout-independent check)
     const QPointF imagePos(320, 200);
-    const QPointF before = m_viewer->mapImageToView(imagePos);
-    ASSERT_NEAR(before.x(), cursor.x(), 0.5);
-    ASSERT_NEAR(before.y(), cursor.y(), 0.5);
+    const QPointF cursor = m_viewer->mapImageToView(imagePos);
 
-    // Zoom in with the cursor at (400, 300): the image point under the
-    // cursor must stay under the cursor
-    QWheelEvent zoomIn(QPointF(cursor), QPointF(cursor), QPoint(), QPoint(0, 120),
+    QWheelEvent zoomIn(cursor, cursor, QPoint(), QPoint(0, 120),
                        Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QCoreApplication::sendEvent(m_viewer, &zoomIn);
 
@@ -108,7 +104,7 @@ TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
     EXPECT_NEAR(after.y(), cursor.y(), 1.0);
 
     // Zoom back out from the same spot
-    QWheelEvent zoomOut(QPointF(cursor), QPointF(cursor), QPoint(), QPoint(0, -120),
+    QWheelEvent zoomOut(cursor, cursor, QPoint(), QPoint(0, -120),
                         Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QCoreApplication::sendEvent(m_viewer, &zoomOut);
     const QPointF afterOut = m_viewer->mapImageToView(imagePos);
@@ -124,17 +120,18 @@ TEST_F(ImageViewerTest, PanIsClampedWhenImageSmallerThanViewport)
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
-    // Displayed 640x400 in 800x600 viewport: pan range is +/- (800-640)/2 = 80
+    // Canvas is 756x580 (800x600 minus 44px left and 20px top ruler strips):
+    // pan range is +/- (756-640)/2 = 58
     QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
     QTest::mouseMove(m_viewer, QPoint(2000, 300));
     QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(2000, 300));
-    EXPECT_NEAR(m_viewer->panOffset().x(), 80.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().x(), 58.0, 0.5);
     EXPECT_NEAR(m_viewer->panOffset().y(), 0.0, 0.5);
 
     QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
     QTest::mouseMove(m_viewer, QPoint(-1200, 300));
     QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(-1200, 300));
-    EXPECT_NEAR(m_viewer->panOffset().x(), -80.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().x(), -58.0, 0.5);
 }
 
 TEST_F(ImageViewerTest, PanIsClampedWhenImageLargerThanViewport)
@@ -145,12 +142,12 @@ TEST_F(ImageViewerTest, PanIsClampedWhenImageLargerThanViewport)
     AppState::instance()->setZoomFactor(2.0);
     QCoreApplication::processEvents();
 
-    // Displayed 1280x800 in 800x600 viewport: pan range +/- (240, 100)
+    // Canvas 756x580, zoom 2 -> displayed 1280x800: pan range +/- (262, 110)
     QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
     QTest::mouseMove(m_viewer, QPoint(2000, 2000));
     QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(2000, 2000));
-    EXPECT_NEAR(m_viewer->panOffset().x(), 240.0, 0.5);
-    EXPECT_NEAR(m_viewer->panOffset().y(), 100.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().x(), 262.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().y(), 110.0, 0.5);
 }
 
 TEST_F(ImageViewerTest, MousePositionTracksImageCoordinates)
@@ -161,11 +158,11 @@ TEST_F(ImageViewerTest, MousePositionTracksImageCoordinates)
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
-    // Image 640x400 at scale 1 -> top-left (80, 100)
-    QTest::mouseMove(m_viewer, QPoint(400, 300));  // image pos (320, 200)
+    // Canvas starts at (44, 20); image top-left at Actual = (102, 110)
+    QTest::mouseMove(m_viewer, QPoint(400, 300));  // image pos (298, 190)
     EXPECT_TRUE(m_viewer->mouseInsideImage());
-    EXPECT_NEAR(m_viewer->mouseImagePos().x(), 320.0, 0.5);
-    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 200.0, 0.5);
+    EXPECT_NEAR(m_viewer->mouseImagePos().x(), 298.0, 0.5);
+    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 190.0, 0.5);
 
     QTest::mouseMove(m_viewer, QPoint(10, 10));  // outside the image
     EXPECT_FALSE(m_viewer->mouseInsideImage());

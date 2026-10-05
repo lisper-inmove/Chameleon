@@ -15,6 +15,10 @@ namespace chameleon {
 namespace {
 constexpr double kMinScale = 0.1;
 constexpr double kMaxScale = 8.0;
+// Ruler strips outside the image canvas: top band (x ticks) and left
+// band (y ticks), Photoshop-style
+constexpr int kLeftRulerWidth = 44;
+constexpr int kTopRulerHeight = 20;
 } // namespace
 
 ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
@@ -66,6 +70,12 @@ bool ImageViewerWidget::saveAs(const QString &path) const
     return m_status == Ready && m_image.save(path, "PNG");
 }
 
+QRectF ImageViewerWidget::canvasRect() const
+{
+    return QRectF(kLeftRulerWidth, kTopRulerHeight,
+                  width() - kLeftRulerWidth, height() - kTopRulerHeight);
+}
+
 double ImageViewerWidget::effectiveScale() const
 {
     if (m_image.isNull())
@@ -78,16 +88,18 @@ double ImageViewerWidget::effectiveScale() const
         return state->zoomFactorForCurrent();
     case AppState::Fit:
     default:
-        return std::min(double(width()) / m_image.width(),
-                        double(height()) / m_image.height());
+        const QRectF canvas = canvasRect();
+        return std::min(canvas.width() / m_image.width(),
+                        canvas.height() / m_image.height());
     }
 }
 
 QPointF ImageViewerWidget::imageTopLeft() const
 {
     const double s = effectiveScale();
-    return QPointF((width() - m_image.width() * s) / 2.0 + m_pan.x(),
-                   (height() - m_image.height() * s) / 2.0 + m_pan.y());
+    const QRectF canvas = canvasRect();
+    return QPointF(canvas.left() + (canvas.width() - m_image.width() * s) / 2.0 + m_pan.x(),
+                   canvas.top() + (canvas.height() - m_image.height() * s) / 2.0 + m_pan.y());
 }
 
 QPointF ImageViewerWidget::mapImageToView(const QPointF &imagePos) const
@@ -102,8 +114,9 @@ void ImageViewerWidget::clampPan()
     if (m_image.isNull())
         return;
     const double s = effectiveScale();
-    const double rangeX = std::abs(m_image.width() * s - width()) / 2.0;
-    const double rangeY = std::abs(m_image.height() * s - height()) / 2.0;
+    const QRectF canvas = canvasRect();
+    const double rangeX = std::abs(m_image.width() * s - canvas.width()) / 2.0;
+    const double rangeY = std::abs(m_image.height() * s - canvas.height()) / 2.0;
     m_pan.setX(std::clamp(m_pan.x(), -rangeX, rangeX));
     m_pan.setY(std::clamp(m_pan.y(), -rangeY, rangeY));
 }
@@ -118,7 +131,8 @@ void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
     const double s = effectiveScale();
     const QPointF tl = imageTopLeft();
     const QPointF img((viewPos.x() - tl.x()) / s, (viewPos.y() - tl.y()) / s);
-    m_mouseInsideImage = img.x() >= 0 && img.y() >= 0
+    m_mouseInsideImage = canvasRect().contains(viewPos)
+            && img.x() >= 0 && img.y() >= 0
             && img.x() < m_image.width() && img.y() < m_image.height();
     if (m_mouseInsideImage)
         m_mouseImagePos = img;
@@ -129,20 +143,21 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.fillRect(rect(), palette().window());
+    const QRectF canvas = canvasRect();
 
     switch (m_status) {
     case NoImage:
         p.setPen(palette().color(QPalette::Disabled, QPalette::Text));
-        p.drawText(rect(), Qt::AlignCenter, QStringLiteral("按 Ctrl+O 打开图片"));
+        p.drawText(canvas, Qt::AlignCenter, QStringLiteral("按 Ctrl+O 打开图片"));
         return;
     case Error:
         p.setPen(Qt::red);
-        p.drawText(rect(), Qt::AlignCenter,
+        p.drawText(canvas, Qt::AlignCenter,
                    QStringLiteral("无法加载图片:%1").arg(QFileInfo(m_path).fileName()));
         return;
     case Loading:
         p.setPen(palette().color(QPalette::Disabled, QPalette::Text));
-        p.drawText(rect(), Qt::AlignCenter, QStringLiteral("加载中…"));
+        p.drawText(canvas, Qt::AlignCenter, QStringLiteral("加载中…"));
         return;
     case Ready:
         break;
@@ -151,11 +166,22 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
     const double s = effectiveScale();
     const QPointF tl = imageTopLeft();
     const QRectF target(tl, QSizeF(m_image.width() * s, m_image.height() * s));
+
+    // The image lives strictly inside the canvas; the ruler strips
+    // outside it are never covered
+    p.save();
+    p.setClipRect(canvas);
     p.setRenderHint(QPainter::SmoothPixmapTransform, s < 2.0);
     p.drawImage(target, m_image);
+    p.restore();
 
-    // Ruler ticks: origin at the image top-left, x positive right,
-    // y positive down, values in image pixels
+    // Ruler strips: separator lines along the canvas border
+    p.setPen(QColor(100, 100, 100));
+    p.drawLine(QPointF(canvas.left() - 1, 0), QPointF(canvas.left() - 1, height()));
+    p.drawLine(QPointF(0, canvas.top() - 1), QPointF(width(), canvas.top() - 1));
+
+    // Ticks in the strips: origin at the image top-left, x positive
+    // right, y positive down, values in image pixels
     p.setPen(QColor(150, 150, 150));
     QFont tickFont = font();
     tickFont.setPointSizeF(std::max(7.0, tickFont.pointSizeF() * 0.8));
@@ -166,15 +192,17 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
         const double vx = tl.x() + ix * s;
         if (vx < -1 || vx > width() + 1)
             continue;
-        p.drawLine(QPointF(vx, 0), QPointF(vx, 8));
-        p.drawText(QPointF(vx + 2, 16), QString::number(int(ix)));
+        p.drawLine(QPointF(vx, 0), QPointF(vx, kTopRulerHeight - 4));
+        p.drawText(QRectF(vx + 3, 0, 40, kTopRulerHeight - 4),
+                   Qt::AlignLeft | Qt::AlignVCenter, QString::number(int(ix)));
     }
     for (double iy = 0; iy <= m_image.height(); iy += interval) {
         const double vy = tl.y() + iy * s;
         if (vy < -1 || vy > height() + 1)
             continue;
-        p.drawLine(QPointF(0, vy), QPointF(8, vy));
-        p.drawText(QPointF(11, vy + 12), QString::number(int(iy)));
+        p.drawLine(QPointF(0, vy), QPointF(kLeftRulerWidth - 4, vy));
+        p.drawText(QRectF(2, vy - 8, kLeftRulerWidth - 8, 16),
+                   Qt::AlignRight | Qt::AlignVCenter, QString::number(int(iy)));
     }
 
     // Mouse position readout: image coordinates near the cursor
@@ -221,8 +249,9 @@ void ImageViewerWidget::wheelEvent(QWheelEvent *event)
     const QPointF mouse = event->position();
     const QPointF imagePos((mouse.x() - tl.x()) / oldScale,
                            (mouse.y() - tl.y()) / oldScale);
-    const QPointF center((width() - m_image.width() * newScale) / 2.0,
-                         (height() - m_image.height() * newScale) / 2.0);
+    const QRectF canvas = canvasRect();
+    const QPointF center(canvas.left() + (canvas.width() - m_image.width() * newScale) / 2.0,
+                         canvas.top() + (canvas.height() - m_image.height() * newScale) / 2.0);
     m_pan = mouse - center - imagePos * newScale;
     clampPan();
     updateMousePosition(mouse);

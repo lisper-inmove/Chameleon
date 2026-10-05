@@ -39,6 +39,7 @@ protected:
     void leaveEvent(QEvent *event) override;
 
 private:
+    QRectF canvasRect() const;
     double effectiveScale() const;
     QPointF imageTopLeft() const;
     double niceTickInterval() const;
