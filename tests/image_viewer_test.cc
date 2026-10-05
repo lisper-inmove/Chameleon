@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QWheelEvent>
 
 #include "app/app_state.h"
 #include "ui/image_viewer_widget.h"
@@ -77,6 +78,39 @@ TEST_F(ImageViewerTest, RendersImagePixels)
         return c.red() > 200 && c.green() > 120 && c.green() < 190 && c.blue() < 80;
     });
     EXPECT_GT(orange, 100);
+}
+
+TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    AppState::instance()->setZoomMode(AppState::Actual);  // scale 1.0
+
+    // Image 640x400 at scale 1 in an 800x600 viewport -> top-left (80, 100)
+    const QPoint cursor(400, 300);
+    const QPointF imagePos(320, 200);
+    const QPointF before = m_viewer->mapImageToView(imagePos);
+    ASSERT_NEAR(before.x(), cursor.x(), 0.5);
+    ASSERT_NEAR(before.y(), cursor.y(), 0.5);
+
+    // Zoom in with the cursor at (400, 300): the image point under the
+    // cursor must stay under the cursor
+    QWheelEvent zoomIn(QPointF(cursor), QPointF(cursor), QPoint(), QPoint(0, 120),
+                       Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(m_viewer, &zoomIn);
+
+    const QPointF after = m_viewer->mapImageToView(imagePos);
+    EXPECT_NEAR(after.x(), cursor.x(), 1.0);
+    EXPECT_NEAR(after.y(), cursor.y(), 1.0);
+
+    // Zoom back out from the same spot
+    QWheelEvent zoomOut(QPointF(cursor), QPointF(cursor), QPoint(), QPoint(0, -120),
+                        Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(m_viewer, &zoomOut);
+    const QPointF afterOut = m_viewer->mapImageToView(imagePos);
+    EXPECT_NEAR(afterOut.x(), cursor.x(), 1.0);
+    EXPECT_NEAR(afterOut.y(), cursor.y(), 1.0);
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

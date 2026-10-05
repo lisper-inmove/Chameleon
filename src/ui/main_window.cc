@@ -25,7 +25,6 @@
 
 #include "app/app_state.h"
 #include "ui/filter_panel.h"
-#include "ui/histogram_panel.h"
 #include "ui/image_viewer_widget.h"
 #include "utils/file_utils.h"
 
@@ -162,6 +161,12 @@ void MainWindow::setupMenus()
     m_saveAction->setShortcut(QKeySequence::Save);  // Ctrl+S
     m_saveAction->setEnabled(false);
 
+    m_reloadAction = fileMenu->addAction(QStringLiteral("重新加载(&R)"),
+                                         this, &MainWindow::reloadCurrentImage);
+    m_reloadAction->setObjectName("reloadAction");
+    m_reloadAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+R")));
+    m_reloadAction->setEnabled(false);
+
     m_closeAction = fileMenu->addAction(QStringLiteral("关闭当前(&W)"), this, [this] {
         AppState::instance()->closeImage(AppState::instance()->currentIndex());
     });
@@ -245,6 +250,7 @@ void MainWindow::setupToolBar()
 
     toolBar->addAction(findChild<QAction *>("openAction"));
     toolBar->addAction(m_saveAction);
+    toolBar->addAction(m_reloadAction);
     toolBar->addAction(QStringLiteral("撤销"))->setEnabled(false);
     toolBar->addAction(QStringLiteral("重做"))->setEnabled(false);
 
@@ -280,7 +286,6 @@ void MainWindow::setupDocks()
     auto *rightLayout = new QVBoxLayout(rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->addWidget(new FilterPanel(rightPanel));
-    rightLayout->addWidget(new HistogramPanel(rightPanel));
 
     m_rightDock = new QDockWidget(QStringLiteral("面板"), this);
     m_rightDock->setObjectName("rightDock");
@@ -333,6 +338,16 @@ void MainWindow::openImages()
     if (files.isEmpty())
         return;
     AppState::instance()->openImages(files);
+}
+
+void MainWindow::reloadCurrentImage()
+{
+    const QString path = AppState::instance()->currentImage();
+    if (path.isEmpty())
+        return;
+    // Back to the initial view state: Fit zoom, pan reset, re-decode
+    AppState::instance()->setZoomMode(AppState::Fit);
+    m_viewer->setImage(path);
 }
 
 void MainWindow::saveImageAs()
@@ -449,6 +464,7 @@ void MainWindow::onCurrentImageChanged()
     }
     const bool hasImage = AppState::instance()->hasImage();
     m_saveAction->setEnabled(hasImage);
+    m_reloadAction->setEnabled(hasImage);
     m_closeAction->setEnabled(hasImage);
     m_fitAction->setEnabled(hasImage);
     m_actualAction->setEnabled(hasImage);

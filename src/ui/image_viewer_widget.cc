@@ -86,6 +86,13 @@ QPointF ImageViewerWidget::imageTopLeft() const
                    (height() - m_image.height() * s) / 2.0 + m_pan.y());
 }
 
+QPointF ImageViewerWidget::mapImageToView(const QPointF &imagePos) const
+{
+    const double s = effectiveScale();
+    const QPointF tl = imageTopLeft();
+    return QPointF(tl.x() + imagePos.x() * s, tl.y() + imagePos.y() * s);
+}
+
 void ImageViewerWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -121,13 +128,15 @@ void ImageViewerWidget::wheelEvent(QWheelEvent *event)
         return;
     auto *state = AppState::instance();
     const double oldScale = effectiveScale();
+    // Capture the top-left BEFORE the zoom state changes; the anchor math
+    // below needs the old layout
+    const QPointF tl = imageTopLeft();
     const double factor = event->angleDelta().y() > 0 ? 1.15 : 1 / 1.15;
     const double newScale = std::clamp(oldScale * factor, kMinScale, kMaxScale);
     state->setZoomFactor(newScale);
 
     // Keep the image point under the cursor stationary
     const QPointF mouse = event->position();
-    const QPointF tl = imageTopLeft();
     const QPointF imagePos((mouse.x() - tl.x()) / oldScale,
                            (mouse.y() - tl.y()) / oldScale);
     const QPointF center((width() - m_image.width() * newScale) / 2.0,

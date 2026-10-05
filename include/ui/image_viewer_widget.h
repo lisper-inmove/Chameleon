@@ -19,6 +19,9 @@ public:
     QString imagePath() const { return m_path; }
     QPointF panOffset() const { return m_pan; }
 
+    // Maps a point in image pixel coordinates to view coordinates
+    QPointF mapImageToView(const QPointF &imagePos) const;
+
     // "" clears back to the empty state
     void setImage(const QString &path);
     bool saveAs(const QString &path) const;

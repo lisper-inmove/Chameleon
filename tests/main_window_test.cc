@@ -183,6 +183,34 @@ TEST_F(MainWindowTest, ClosingCurrentTabShowsNeighborNotFirst)
               std::string(TEST_DATA_DIR "/test_image.png"));
 }
 
+TEST_F(MainWindowTest, ReloadResetsZoomAndKeepsImage)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_EQ(viewer->status(), ImageViewerWidget::Ready);
+
+    // Zoom in and pan away from center
+    AppState::instance()->setZoomFactor(2.0);
+    QTest::mousePress(viewer, Qt::LeftButton, Qt::NoModifier, QPoint(200, 200));
+    QTest::mouseMove(viewer, QPoint(260, 240));
+    QTest::mouseRelease(viewer, Qt::LeftButton, Qt::NoModifier, QPoint(260, 240));
+    EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Custom);
+
+    auto *reload = action("reloadAction");
+    ASSERT_NE(reload, nullptr);
+    reload->trigger();
+    QCoreApplication::processEvents();
+
+    // Back to the initial state: Fit zoom, pan reset, image still shown
+    EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Fit);
+    EXPECT_EQ(viewer->panOffset(), QPointF());
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    EXPECT_EQ(viewer->imagePath().toStdString(),
+              std::string(TEST_DATA_DIR "/test_image.png"));
+}
+
 TEST_F(MainWindowTest, ClosingBackgroundTabKeepsCurrentImageAndPan)
 {
     AppState::instance()->openImages(

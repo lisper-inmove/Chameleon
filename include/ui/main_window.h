@@ -25,6 +25,7 @@ private:
     void setupStatusBar();
     void openImages();
     void saveImageAs();
+    void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();
     void updateStatusBar();
@@ -43,6 +44,7 @@ private:
     QLabel *m_toolbarZoom = nullptr;
     QString m_shownImagePath;
     QAction *m_saveAction = nullptr;
+    QAction *m_reloadAction = nullptr;
     QAction *m_closeAction = nullptr;
     QAction *m_fitAction = nullptr;
     QAction *m_actualAction = nullptr;
