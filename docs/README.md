@@ -1,16 +1,16 @@
 # Chameleon
 
-基于 **Qt Quick (QML) + OpenCV** 的桌面图片处理软件。
+基于 **Qt Widgets + OpenCV** 的桌面图片处理软件。
 
 ## 技术栈
 
 | 组件 | 用途 |
 | --- | --- |
-| Qt 6.12 (MSVC 2022 套件) | UI 框架、QML 界面 |
+| Qt 6.12 Widgets (MSVC 2022 套件) | UI 框架 |
 | OpenCV 5.1 | 图像处理核心 |
 | spdlog | 日志 |
 | yaml-cpp | 解析运行时配置(configs/app.yaml) |
-| googletest | 单元测试 |
+| googletest | 单元测试(含 UI 与像素渲染测试) |
 | CMake + VS 2026 | 构建系统 |
 
 ## 构建
@@ -39,8 +39,9 @@ VSCode 中可在 Testing 面板(TestMate C++ 提供者)直接运行单个测试�
 ```
 cmakes/           # CMake 模块(依赖、编译选项、目标、测试)
 configs/          # 运行时 YAML 配置(app.yaml,开发时直接生效)
-src/              # 源码(.cc,入口 src/main.cpp)+ QML
-tests/            # 单元测试(.cc,入口 tests/main.cpp)
+include/          # C++ 头文件(按二级目录组织:app/ config/ ui/ utils/)
+src/              # 源码(.cc,入口 src/main.cpp;ui/ 与 app/ 二级目录)
+tests/            # 单元测试(.cc,入口 tests/main.cpp;含 UI 自动化测试)
 docs/             # 项目文档
 ```
 
