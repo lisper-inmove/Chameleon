@@ -28,6 +28,7 @@ qt_add_qml_module(chameleon_lib
         src/components/FilterPanel.qml
         src/components/HistogramPanel.qml
         src/components/StatusBar.qml
+        src/dialogs/AboutDialog.qml
 )
 
 target_sources(chameleon_lib PRIVATE
