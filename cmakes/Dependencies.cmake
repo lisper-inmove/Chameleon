@@ -28,7 +28,7 @@ list(APPEND CMAKE_PREFIX_PATH
     "${CHAMELEON_THIRD_PARTY_DIR}/yaml-cpp"
     "${CHAMELEON_THIRD_PARTY_DIR}/googletest")
 
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)

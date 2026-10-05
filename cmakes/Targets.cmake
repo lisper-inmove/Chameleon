@@ -22,6 +22,7 @@ qt_add_qml_module(chameleon_lib
     OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Chameleon"
     QML_FILES
         src/Main.qml
+        src/app/AppState.qml
 )
 
 target_sources(chameleon_lib PRIVATE
@@ -38,6 +39,7 @@ target_include_directories(chameleon_lib PUBLIC
 # OpenCV 5 exports its modules without the OpenCV:: namespace
 target_link_libraries(chameleon_lib PUBLIC
     Qt6::Quick
+    Qt6::QuickControls2
     opencv_core
     opencv_imgproc
     opencv_imgcodecs
