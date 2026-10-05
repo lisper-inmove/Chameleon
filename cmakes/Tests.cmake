@@ -28,9 +28,6 @@ target_link_libraries(chameleon_tests PRIVATE
     GTest::gtest
 )
 
-# Qt and OpenCV are DLLs; the test executable needs their bin directories on
-# PATH to run. PRE_TEST discovery moves the test list collection from build
-# time into ctest, where ENVIRONMENT is applied.
 gtest_discover_tests(chameleon_tests
     DISCOVERY_MODE PRE_TEST
     PROPERTIES

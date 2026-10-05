@@ -28,7 +28,7 @@ list(APPEND CMAKE_PREFIX_PATH
     "${CHAMELEON_THIRD_PARTY_DIR}/yaml-cpp"
     "${CHAMELEON_THIRD_PARTY_DIR}/googletest")
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
@@ -36,5 +36,3 @@ find_package(GTest REQUIRED)
 
 # Root of the Qt kit (needed to locate runtime DLLs for running tests)
 get_filename_component(CHAMELEON_QT_ROOT "${Qt6_DIR}/../../.." ABSOLUTE)
-
-qt_standard_project_setup(REQUIRES 6.10)

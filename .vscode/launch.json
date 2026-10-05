@@ -14,10 +14,6 @@
                     "name": "PATH",
                     "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\bin;F:\\codes\\third_party_debug\\opencv\\x64\\vc18\\bin;${env:PATH}"
                 },
-                {
-                    "name": "QML2_IMPORT_PATH",
-                    "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\qml"
-                }
             ],
             "preLaunchTask": "CMake: build (Debug)"
         },
@@ -34,10 +30,6 @@
                     "name": "PATH",
                     "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\bin;F:\\codes\\third_party\\opencv\\x64\\vc18\\bin;${env:PATH}"
                 },
-                {
-                    "name": "QML2_IMPORT_PATH",
-                    "value": "C:\\Software\\Qt\\6.12.0\\msvc2022_64\\qml"
-                }
             ],
             "preLaunchTask": "CMake: build (Release)"
         }

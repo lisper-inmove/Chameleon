@@ -8,39 +8,14 @@
 
 include(GNUInstallDirs)
 
-# Content of downloaded design from Figma to Qt or similar
-if(EXISTS "${CMAKE_SOURCE_DIR}/importedcontent/CMakeLists.txt")
-    add_subdirectory("${CMAKE_SOURCE_DIR}/importedcontent")
-endif()
-
-qt_add_library(chameleon_lib STATIC)
-
-# Qt 6.12 requires QT_QML_SINGLETON_TYPE=TRUE in addition to the pragma
-# Singleton statement in the file, otherwise no "singleton" entry is written
-# to the generated qmldir and AppState resolves to a type, not an instance.
-set_source_files_properties(src/app/AppState.qml PROPERTIES
-    QT_QML_SINGLETON_TYPE TRUE)
-
-# OUTPUT_DIRECTORY must end with the module's target path, otherwise qmllint
-# and other QML tooling cannot locate the module
-qt_add_qml_module(chameleon_lib
-    URI Chameleon
-    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Chameleon"
-    QML_FILES
-        src/Main.qml
-        src/app/AppState.qml
-        src/components/ImageViewer.qml
-        src/components/ThumbnailBar.qml
-        src/components/FilterPanel.qml
-        src/components/HistogramPanel.qml
-        src/components/StatusBar.qml
-        src/dialogs/AboutDialog.qml
-)
+add_library(chameleon_lib STATIC)
 
 target_sources(chameleon_lib PRIVATE
     include/config/config_manager.h
+    include/ui/main_window.h
     include/utils/file_utils.h
     src/config/config_manager.cc
+    src/ui/main_window.cc
     src/utils/file_utils.cc
 )
 
@@ -50,8 +25,7 @@ target_include_directories(chameleon_lib PUBLIC
 
 # OpenCV 5 exports its modules without the OpenCV:: namespace
 target_link_libraries(chameleon_lib PUBLIC
-    Qt6::Quick
-    Qt6::QuickControls2
+    Qt6::Widgets
     opencv_core
     opencv_imgproc
     opencv_imgcodecs
@@ -77,11 +51,6 @@ qt_add_executable(appChameleon
 )
 
 target_link_libraries(appChameleon PRIVATE chameleon_lib)
-
-# The QML module is backed by a static library, so its static plugin must be
-# linked explicitly for the module to be registered (static plugins are not
-# discovered dynamically at runtime)
-target_link_libraries(appChameleon PRIVATE chameleon_libplugin)
 
 set_target_properties(appChameleon PROPERTIES
 #    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appChameleon

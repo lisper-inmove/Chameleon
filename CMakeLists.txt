@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.21)
 project(Chameleon VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
 
 # All project logic lives in cmakes/, included in order:
 #   Dependencies     - find_package for Qt and third-party libraries
@@ -15,5 +18,3 @@ include(Dependencies)
 include(CompilerOptions)
 include(Targets)
 include(Tests)
-
-qt_finalize_project()
