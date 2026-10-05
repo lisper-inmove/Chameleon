@@ -16,6 +16,7 @@ include(GoogleTest)
 add_executable(chameleon_tests
     tests/main.cpp
     tests/config_manager_test.cc
+    tests/file_utils_test.cc
 )
 
 target_compile_definitions(chameleon_tests PRIVATE

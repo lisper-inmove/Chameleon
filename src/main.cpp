@@ -6,7 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include "chameleon/config_paths.h"
-#include "config_manager.h"
+#include "config/config_manager.h"
 
 int main(int argc, char *argv[])
 {

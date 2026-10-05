@@ -25,12 +25,14 @@ qt_add_qml_module(chameleon_lib
 )
 
 target_sources(chameleon_lib PRIVATE
-    src/config_manager.h
-    src/config_manager.cc
+    include/config/config_manager.h
+    include/utils/file_utils.h
+    src/config/config_manager.cc
+    src/utils/file_utils.cc
 )
 
 target_include_directories(chameleon_lib PUBLIC
-    "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/include"
 )
 
 # OpenCV 5 exports its modules without the OpenCV:: namespace

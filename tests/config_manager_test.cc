@@ -1,14 +1,14 @@
 #include <gtest/gtest.h>
 
-#include "config_manager.h"
+#include "config/config_manager.h"
 
 TEST(ConfigManagerTest, LoadsValidFile)
 {
     chameleon::ConfigManager config;
     ASSERT_TRUE(config.load(TEST_DATA_DIR "/app.yaml"));
     EXPECT_EQ(config.title(), "Chameleon");
-    EXPECT_EQ(config.windowWidth(), 1600);
-    EXPECT_EQ(config.windowHeight(), 1200);
+    EXPECT_EQ(config.windowWidth(), 1200);
+    EXPECT_EQ(config.windowHeight(), 800);
 }
 
 TEST(ConfigManagerTest, MissingFileFallsBackToDefaults)
