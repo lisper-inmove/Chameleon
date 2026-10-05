@@ -44,6 +44,7 @@ private:
     QPointF imageTopLeft() const;
     double niceTickInterval() const;
     void clampPan();
+    void alignToOrigin();
     void updateMousePosition(const QPointF &viewPos);
 
     QString m_path;

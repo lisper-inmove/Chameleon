@@ -203,9 +203,12 @@ TEST_F(MainWindowTest, ReloadResetsZoomAndKeepsImage)
     reload->trigger();
     QCoreApplication::processEvents();
 
-    // Back to the initial state: Fit zoom, pan reset, image still shown
+    // Back to the initial state: Fit zoom, origin-aligned (the image (0,0)
+    // coincides with the ruler origin), image still shown
     EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Fit);
-    EXPECT_EQ(viewer->panOffset(), QPointF());
+    const QPointF origin = viewer->mapImageToView(QPointF(0, 0));
+    EXPECT_NEAR(origin.x(), 44.0, 0.5);
+    EXPECT_NEAR(origin.y(), 20.0, 0.5);
     EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
     EXPECT_EQ(viewer->imagePath().toStdString(),
               std::string(TEST_DATA_DIR "/test_image.png"));

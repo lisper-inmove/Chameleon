@@ -61,6 +61,8 @@ void ImageViewerWidget::setImage(const QString &path)
         m_image = image;
         AppState::instance()->setImageInfo(image.size());
         m_status = Ready;
+        // Initial state: image (0,0) coincides with the ruler origin
+        alignToOrigin();
     }
     update();
 }
@@ -119,6 +121,16 @@ void ImageViewerWidget::clampPan()
     const double rangeY = std::abs(m_image.height() * s - canvas.height()) / 2.0;
     m_pan.setX(std::clamp(m_pan.x(), -rangeX, rangeX));
     m_pan.setY(std::clamp(m_pan.y(), -rangeY, rangeY));
+}
+
+void ImageViewerWidget::alignToOrigin()
+{
+    if (m_image.isNull())
+        return;
+    const double s = effectiveScale();
+    const QRectF canvas = canvasRect();
+    m_pan = QPointF(-(canvas.width() - m_image.width() * s) / 2.0,
+                    -(canvas.height() - m_image.height() * s) / 2.0);
 }
 
 void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)

@@ -83,6 +83,19 @@ TEST_F(ImageViewerTest, RendersImagePixels)
     EXPECT_GT(orange, 100);
 }
 
+TEST_F(ImageViewerTest, ImageOriginAlignsWithRulerOriginOnLoad)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+
+    // Image (0,0) sits exactly at the ruler origin, i.e. the canvas
+    // top-left corner (left ruler 44px, top ruler 20px)
+    const QPointF origin = m_viewer->mapImageToView(QPointF(0, 0));
+    EXPECT_NEAR(origin.x(), 44.0, 0.5);
+    EXPECT_NEAR(origin.y(), 20.0, 0.5);
+}
+
 TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
@@ -120,13 +133,15 @@ TEST_F(ImageViewerTest, PanIsClampedWhenImageSmallerThanViewport)
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
-    // Canvas is 756x580 (800x600 minus 44px left and 20px top ruler strips):
-    // pan range is +/- (756-640)/2 = 58
+    // Canvas is 756x580 (800x600 minus 44px left and 20px top ruler strips).
+    // Load-time alignment happens at Fit scale (disp 756x472.5):
+    // pan = (0, -(580-472.5)/2) = (0, -53.75). Switching to Actual keeps
+    // the pan; the x range at Actual is +/- (756-640)/2 = 58.
     QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
     QTest::mouseMove(m_viewer, QPoint(2000, 300));
     QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(2000, 300));
     EXPECT_NEAR(m_viewer->panOffset().x(), 58.0, 0.5);
-    EXPECT_NEAR(m_viewer->panOffset().y(), 0.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().y(), -53.75, 0.5);
 
     QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
     QTest::mouseMove(m_viewer, QPoint(-1200, 300));
@@ -158,11 +173,12 @@ TEST_F(ImageViewerTest, MousePositionTracksImageCoordinates)
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
-    // Canvas starts at (44, 20); image top-left at Actual = (102, 110)
-    QTest::mouseMove(m_viewer, QPoint(400, 300));  // image pos (298, 190)
+    // Pan kept from load-time Fit alignment: image top-left at Actual
+    // = (102, 56.25), so view (400, 300) -> image pos (298, 243.75)
+    QTest::mouseMove(m_viewer, QPoint(400, 300));
     EXPECT_TRUE(m_viewer->mouseInsideImage());
     EXPECT_NEAR(m_viewer->mouseImagePos().x(), 298.0, 0.5);
-    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 190.0, 0.5);
+    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 243.75, 0.5);
 
     QTest::mouseMove(m_viewer, QPoint(10, 10));  // outside the image
     EXPECT_FALSE(m_viewer->mouseInsideImage());
