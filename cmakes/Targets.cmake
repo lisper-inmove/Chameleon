@@ -23,6 +23,7 @@ qt_add_qml_module(chameleon_lib
     QML_FILES
         src/Main.qml
         src/app/AppState.qml
+        src/components/ImageViewer.qml
 )
 
 target_sources(chameleon_lib PRIVATE
