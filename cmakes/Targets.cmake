@@ -15,6 +15,12 @@ endif()
 
 qt_add_library(chameleon_lib STATIC)
 
+# Qt 6.12 requires QT_QML_SINGLETON_TYPE=TRUE in addition to the pragma
+# Singleton statement in the file, otherwise no "singleton" entry is written
+# to the generated qmldir and AppState resolves to a type, not an instance.
+set_source_files_properties(src/app/AppState.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE)
+
 # OUTPUT_DIRECTORY must end with the module's target path, otherwise qmllint
 # and other QML tooling cannot locate the module
 qt_add_qml_module(chameleon_lib

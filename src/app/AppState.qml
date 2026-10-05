@@ -100,7 +100,9 @@ QtObject {
             currentIndex = images.length - 1
     }
 
-    Settings {
+    // QtObject has no default property, so Settings cannot be a child
+    // object; bind it to a property instead.
+    property Settings settings: Settings {
         category: "ui"
         property alias theme: root.theme
         property alias recentFiles: root.recentFiles
