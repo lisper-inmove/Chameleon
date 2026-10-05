@@ -31,6 +31,10 @@ void AppState::setCurrentIndex(int index)
 {
     if (m_images.isEmpty())
         return;
+    // Negative indexes are rejected: QListWidget::clear() emits
+    // currentRowChanged(-1) and must not reset the selection to 0
+    if (index < 0)
+        return;
     const int clamped = qBound(0, index, m_images.size() - 1);
     if (clamped == m_currentIndex)
         return;

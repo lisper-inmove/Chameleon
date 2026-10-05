@@ -441,7 +441,12 @@ void MainWindow::updateZoomUi()
 void MainWindow::onCurrentImageChanged()
 {
     const QString path = AppState::instance()->currentImage();
-    m_viewer->setImage(path);
+    // Only (re)load when the displayed image actually changed; closing a
+    // background tab shifts indexes but must not reload the current image
+    if (path != m_shownImagePath) {
+        m_viewer->setImage(path);
+        m_shownImagePath = path;
+    }
     const bool hasImage = AppState::instance()->hasImage();
     m_saveAction->setEnabled(hasImage);
     m_closeAction->setEnabled(hasImage);

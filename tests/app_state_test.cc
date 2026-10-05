@@ -112,6 +112,8 @@ TEST_F(AppStateTest, SetCurrentIndexClamps)
     s->openImages({"F:/a.png", "F:/b.png"});
     s->setCurrentIndex(5);
     EXPECT_EQ(s->currentIndex(), 1);
+    // Negative indexes are rejected: QListWidget::clear() emits
+    // currentRowChanged(-1), which must not reset the selection to 0
     s->setCurrentIndex(-3);
-    EXPECT_EQ(s->currentIndex(), 0);
+    EXPECT_EQ(s->currentIndex(), 1);
 }

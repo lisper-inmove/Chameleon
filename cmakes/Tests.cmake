@@ -29,6 +29,7 @@ target_compile_definitions(chameleon_tests PRIVATE
 target_link_libraries(chameleon_tests PRIVATE
     chameleon_lib
     GTest::gtest
+    Qt6::Test
 )
 
 gtest_discover_tests(chameleon_tests

@@ -9,6 +9,7 @@
 #include <QMenuBar>
 #include <QPalette>
 #include <QStatusBar>
+#include <QtTest/QTest>
 
 #include "app/app_state.h"
 #include "ui/image_viewer_widget.h"
@@ -146,4 +147,66 @@ TEST_F(MainWindowTest, DarkThemeChangesPalette)
     QCoreApplication::processEvents();
     EXPECT_LT(QApplication::palette().color(QPalette::Window).lightness(), 100);
     AppState::instance()->setTheme("system");
+}
+
+TEST_F(MainWindowTest, OpeningMoreImagesKeepsNewSelection)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    AppState::instance()->openImages({TEST_DATA_DIR "/not_an_image.png"});
+    QCoreApplication::processEvents();
+
+    // Must select the newly opened image, not clamp back to the first
+    EXPECT_EQ(AppState::instance()->currentIndex(), 1);
+    auto *list = s_window->findChild<QListWidget *>("thumbnailList");
+    ASSERT_NE(list, nullptr);
+    EXPECT_EQ(list->currentRow(), 1);
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::Error);  // the corrupt new image
+}
+
+TEST_F(MainWindowTest, ClosingCurrentTabShowsNeighborNotFirst)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    AppState::instance()->openImages({TEST_DATA_DIR "/not_an_image.png"});
+    QCoreApplication::processEvents();
+    ASSERT_EQ(AppState::instance()->currentIndex(), 1);
+
+    AppState::instance()->closeImage(1);
+    QCoreApplication::processEvents();
+
+    EXPECT_EQ(AppState::instance()->currentIndex(), 0);
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    EXPECT_EQ(viewer->imagePath().toStdString(),
+              std::string(TEST_DATA_DIR "/test_image.png"));
+}
+
+TEST_F(MainWindowTest, ClosingBackgroundTabKeepsCurrentImageAndPan)
+{
+    AppState::instance()->openImages(
+        {TEST_DATA_DIR "/test_image.png", TEST_DATA_DIR "/not_an_image.png"});
+    AppState::instance()->setCurrentIndex(0);  // watch the valid image
+    QCoreApplication::processEvents();
+
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_EQ(viewer->status(), ImageViewerWidget::Ready);
+
+    // Drag to pan the current image
+    QTest::mousePress(viewer, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mouseMove(viewer, QPoint(150, 120));
+    QTest::mouseRelease(viewer, Qt::LeftButton, Qt::NoModifier, QPoint(150, 120));
+    const QPointF panBefore = viewer->panOffset();
+    EXPECT_GT(qAbs(panBefore.x()), 0.1);
+
+    AppState::instance()->closeImage(1);  // close the background tab
+    QCoreApplication::processEvents();
+
+    EXPECT_EQ(AppState::instance()->currentIndex(), 0);
+    EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    EXPECT_EQ(viewer->imagePath().toStdString(),
+              std::string(TEST_DATA_DIR "/test_image.png"));
+    // The current image must not be reloaded (pan position preserved)
+    EXPECT_EQ(viewer->panOffset(), panBefore);
 }

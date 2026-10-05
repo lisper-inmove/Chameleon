@@ -17,6 +17,7 @@ public:
 
     Status status() const { return m_status; }
     QString imagePath() const { return m_path; }
+    QPointF panOffset() const { return m_pan; }
 
     // "" clears back to the empty state
     void setImage(const QString &path);

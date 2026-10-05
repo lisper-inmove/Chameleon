@@ -41,6 +41,7 @@ private:
     QLabel *m_statusZoom = nullptr;
     QLabel *m_statusFileSize = nullptr;
     QLabel *m_toolbarZoom = nullptr;
+    QString m_shownImagePath;
     QAction *m_saveAction = nullptr;
     QAction *m_closeAction = nullptr;
     QAction *m_fitAction = nullptr;
