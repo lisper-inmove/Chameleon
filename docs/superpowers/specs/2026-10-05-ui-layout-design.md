@@ -26,6 +26,8 @@ Chameleon 是基于 Qt Quick + OpenCV 的 Windows 图片处理软件,当前 UI �
 
 ## 文件结构
 
+QML(位于 src/,QML 模块资源):
+
 ```
 src/
 ├── Main.qml                 # 主窗口 shell:菜单栏、工具栏、布局组装
@@ -41,7 +43,25 @@ src/
     └── AboutDialog.qml      # 关于对话框
 ```
 
-C++ 辅助:src/file_utils.h / .cc(`FileUtils::fileSizeOf`,状态栏文件大小用,经 context property 注入)。
+C++(头文件进 include/ 并按二级目录组织,实现文件放 src/ 对应二级目录):
+
+```
+include/
+├── config/
+│   └── config_manager.h     # 从 src/ 迁入(现有代码随本轮一并调整)
+└── utils/
+    └── file_utils.h         # FileUtils::fileSizeOf,状态栏文件大小用
+
+src/
+├── main.cpp                 # 入口(保持不变)
+├── config/
+│   └── config_manager.cc    # 从 src/ 迁入
+└── utils/
+    └── file_utils.cc
+```
+
+- `include/` 作为 chameleon_lib 的 PUBLIC include 根,内部以 `#include "config/config_manager.h"`、`"utils/file_utils.h"` 引用;tests 经 chameleon_lib 传递获得 include 路径
+- `FileUtils` 经 main.cpp 以 context property `fileUtils` 注入 QML
 
 ## 状态管理(AppState 单例)
 
@@ -110,7 +130,8 @@ C++ 辅助:src/file_utils.h / .cc(`FileUtils::fileSizeOf`,状态栏文件大小�
 ## CMake 变更
 
 - [cmakes/Targets.cmake](cmakes/Targets.cmake):`qt_add_qml_module(chameleon_lib ...)` 的 QML_FILES 补全新增文件
-- 新增最小 C++ 辅助:src/file_utils.h/.cc(`FileUtils` QObject,`Q_INVOKABLE qint64 fileSizeOf(const QUrl &)`),在 main.cpp 中以 context property `fileUtils` 注入——QML 无文件 stat API,状态栏显示文件大小需要它;列入 chameleon_lib 源码
+- 目录调整:chameleon_lib 源码改为 src/config/config_manager.cc 与 src/utils/file_utils.cc;`target_include_directories(chameleon_lib PUBLIC ...)` 由 src/ 改为 `${CMAKE_SOURCE_DIR}/include`;main.cpp 与 tests 的 include 引用改为 `"config/config_manager.h"` 等二级目录形式
+- 新增最小 C++ 辅助:`FileUtils` QObject(`Q_INVOKABLE qint64 fileSizeOf(const QUrl &)`)——QML 无文件 stat API,状态栏显示文件大小需要它
 - 无新增第三方依赖:QtCore.Settings、QtQuick.Dialogs 均在现有 Qt Quick 模块内
 
 ## 验证计划
