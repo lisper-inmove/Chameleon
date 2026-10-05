@@ -201,7 +201,8 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
         if (vy < -1 || vy > height() + 1)
             continue;
         p.drawLine(QPointF(0, vy), QPointF(kLeftRulerWidth - 4, vy));
-        p.drawText(QRectF(2, vy - 8, kLeftRulerWidth - 8, 16),
+        // Label sits below the tick line so they don't overlap
+        p.drawText(QRectF(2, vy + 1, kLeftRulerWidth - 8, 16),
                    Qt::AlignRight | Qt::AlignVCenter, QString::number(int(iy)));
     }
 
