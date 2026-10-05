@@ -11,9 +11,11 @@ include(GNUInstallDirs)
 add_library(chameleon_lib STATIC)
 
 target_sources(chameleon_lib PRIVATE
+    include/app/app_state.h
     include/config/config_manager.h
     include/ui/main_window.h
     include/utils/file_utils.h
+    src/app/app_state.cc
     src/config/config_manager.cc
     src/ui/main_window.cc
     src/utils/file_utils.cc
