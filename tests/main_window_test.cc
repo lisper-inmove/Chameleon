@@ -221,6 +221,11 @@ TEST_F(MainWindowTest, ClosingBackgroundTabKeepsCurrentImageAndPan)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_EQ(viewer->status(), ImageViewerWidget::Ready);
 
+    // Zoom in first so panning is legal (at Fit the image fills the width
+    // and the new pan clamp pins horizontal movement to 0)
+    AppState::instance()->setZoomFactor(2.0);
+    QCoreApplication::processEvents();
+
     // Drag to pan the current image
     QTest::mousePress(viewer, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
     QTest::mouseMove(viewer, QPoint(150, 120));

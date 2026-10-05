@@ -18,6 +18,8 @@ public:
     Status status() const { return m_status; }
     QString imagePath() const { return m_path; }
     QPointF panOffset() const { return m_pan; }
+    QPointF mouseImagePos() const { return m_mouseImagePos; }
+    bool mouseInsideImage() const { return m_mouseInsideImage; }
 
     // Maps a point in image pixel coordinates to view coordinates
     QPointF mapImageToView(const QPointF &imagePos) const;
@@ -34,16 +36,23 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void leaveEvent(QEvent *event) override;
 
 private:
     double effectiveScale() const;
     QPointF imageTopLeft() const;
+    double niceTickInterval() const;
+    void clampPan();
+    void updateMousePosition(const QPointF &viewPos);
 
     QString m_path;
     QImage m_image;
     Status m_status = NoImage;
     QPointF m_pan;
     QPointF m_lastDragPos;
+    QPointF m_lastMousePos;
+    QPointF m_mouseImagePos;
+    bool m_mouseInsideImage = false;
     bool m_dragging = false;
 };
 

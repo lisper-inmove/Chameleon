@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QWheelEvent>
+#include <QtTest/QTest>
 
 #include "app/app_state.h"
 #include "ui/image_viewer_widget.h"
@@ -23,6 +24,8 @@ protected:
         s->setZoomMode(AppState::Fit);
         m_viewer = new ImageViewerWidget;
         m_viewer->resize(800, 600);
+        m_viewer->show();
+        QCoreApplication::processEvents();
     }
 
     void TearDown() override
@@ -111,6 +114,89 @@ TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
     const QPointF afterOut = m_viewer->mapImageToView(imagePos);
     EXPECT_NEAR(afterOut.x(), cursor.x(), 1.0);
     EXPECT_NEAR(afterOut.y(), cursor.y(), 1.0);
+}
+
+TEST_F(ImageViewerTest, PanIsClampedWhenImageSmallerThanViewport)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    AppState::instance()->setZoomMode(AppState::Actual);
+    QCoreApplication::processEvents();
+
+    // Displayed 640x400 in 800x600 viewport: pan range is +/- (800-640)/2 = 80
+    QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
+    QTest::mouseMove(m_viewer, QPoint(2000, 300));
+    QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(2000, 300));
+    EXPECT_NEAR(m_viewer->panOffset().x(), 80.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().y(), 0.0, 0.5);
+
+    QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
+    QTest::mouseMove(m_viewer, QPoint(-1200, 300));
+    QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(-1200, 300));
+    EXPECT_NEAR(m_viewer->panOffset().x(), -80.0, 0.5);
+}
+
+TEST_F(ImageViewerTest, PanIsClampedWhenImageLargerThanViewport)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    AppState::instance()->setZoomFactor(2.0);
+    QCoreApplication::processEvents();
+
+    // Displayed 1280x800 in 800x600 viewport: pan range +/- (240, 100)
+    QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
+    QTest::mouseMove(m_viewer, QPoint(2000, 2000));
+    QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(2000, 2000));
+    EXPECT_NEAR(m_viewer->panOffset().x(), 240.0, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().y(), 100.0, 0.5);
+}
+
+TEST_F(ImageViewerTest, MousePositionTracksImageCoordinates)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    AppState::instance()->setZoomMode(AppState::Actual);
+    QCoreApplication::processEvents();
+
+    // Image 640x400 at scale 1 -> top-left (80, 100)
+    QTest::mouseMove(m_viewer, QPoint(400, 300));  // image pos (320, 200)
+    EXPECT_TRUE(m_viewer->mouseInsideImage());
+    EXPECT_NEAR(m_viewer->mouseImagePos().x(), 320.0, 0.5);
+    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 200.0, 0.5);
+
+    QTest::mouseMove(m_viewer, QPoint(10, 10));  // outside the image
+    EXPECT_FALSE(m_viewer->mouseInsideImage());
+}
+
+TEST_F(ImageViewerTest, RulerTicksAreDrawnAtImageOrigin)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    AppState::instance()->setZoomMode(AppState::Actual);
+    QCoreApplication::processEvents();
+
+    const QImage shot = m_viewer->grab().toImage();
+    // Tick color is QColor(150, 150, 150); count it along the top band
+    // (x ruler) and the left band (y ruler)
+    int topTicks = 0;
+    int leftTicks = 0;
+    for (int y = 0; y < shot.height(); ++y) {
+        for (int x = 0; x < shot.width(); ++x) {
+            const QColor c = shot.pixelColor(x, y);
+            if (c.red() == 150 && c.green() == 150 && c.blue() == 150) {
+                if (y <= 10)
+                    ++topTicks;
+                if (x <= 10)
+                    ++leftTicks;
+            }
+        }
+    }
+    EXPECT_GT(topTicks, 40);   // x ticks at image-pixel multiples along the top
+    EXPECT_GT(leftTicks, 20);  // y ticks along the left edge
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

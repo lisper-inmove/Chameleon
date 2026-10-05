@@ -19,6 +19,9 @@ constexpr double kMaxScale = 8.0;
 
 ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
 {
+    // Hover coordinate readout needs move events without a pressed button
+    setMouseTracking(true);
+
     connect(AppState::instance(), &AppState::zoomChanged, this, [this] {
         // Returning to Fit resets panning
         if (AppState::instance()->zoomMode() == AppState::Fit)
@@ -32,6 +35,7 @@ void ImageViewerWidget::setImage(const QString &path)
     m_path = path;
     m_pan = QPointF();
     m_dragging = false;
+    m_mouseInsideImage = false;
     if (path.isEmpty()) {
         m_image = QImage();
         AppState::instance()->setImageInfo(QSize());
@@ -93,6 +97,34 @@ QPointF ImageViewerWidget::mapImageToView(const QPointF &imagePos) const
     return QPointF(tl.x() + imagePos.x() * s, tl.y() + imagePos.y() * s);
 }
 
+void ImageViewerWidget::clampPan()
+{
+    if (m_image.isNull())
+        return;
+    const double s = effectiveScale();
+    const double rangeX = std::abs(m_image.width() * s - width()) / 2.0;
+    const double rangeY = std::abs(m_image.height() * s - height()) / 2.0;
+    m_pan.setX(std::clamp(m_pan.x(), -rangeX, rangeX));
+    m_pan.setY(std::clamp(m_pan.y(), -rangeY, rangeY));
+}
+
+void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
+{
+    m_lastMousePos = viewPos;
+    if (m_status != Ready) {
+        m_mouseInsideImage = false;
+        return;
+    }
+    const double s = effectiveScale();
+    const QPointF tl = imageTopLeft();
+    const QPointF img((viewPos.x() - tl.x()) / s, (viewPos.y() - tl.y()) / s);
+    m_mouseInsideImage = img.x() >= 0 && img.y() >= 0
+            && img.x() < m_image.width() && img.y() < m_image.height();
+    if (m_mouseInsideImage)
+        m_mouseImagePos = img;
+    update();
+}
+
 void ImageViewerWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -117,9 +149,59 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
     }
 
     const double s = effectiveScale();
-    const QRectF target(imageTopLeft(), QSizeF(m_image.width() * s, m_image.height() * s));
+    const QPointF tl = imageTopLeft();
+    const QRectF target(tl, QSizeF(m_image.width() * s, m_image.height() * s));
     p.setRenderHint(QPainter::SmoothPixmapTransform, s < 2.0);
     p.drawImage(target, m_image);
+
+    // Ruler ticks: origin at the image top-left, x positive right,
+    // y positive down, values in image pixels
+    p.setPen(QColor(150, 150, 150));
+    QFont tickFont = font();
+    tickFont.setPointSizeF(std::max(7.0, tickFont.pointSizeF() * 0.8));
+    p.setFont(tickFont);
+
+    const double interval = niceTickInterval();
+    for (double ix = 0; ix <= m_image.width(); ix += interval) {
+        const double vx = tl.x() + ix * s;
+        if (vx < -1 || vx > width() + 1)
+            continue;
+        p.drawLine(QPointF(vx, 0), QPointF(vx, 8));
+        p.drawText(QPointF(vx + 2, 16), QString::number(int(ix)));
+    }
+    for (double iy = 0; iy <= m_image.height(); iy += interval) {
+        const double vy = tl.y() + iy * s;
+        if (vy < -1 || vy > height() + 1)
+            continue;
+        p.drawLine(QPointF(0, vy), QPointF(8, vy));
+        p.drawText(QPointF(11, vy + 12), QString::number(int(iy)));
+    }
+
+    // Mouse position readout: image coordinates near the cursor
+    if (m_mouseInsideImage) {
+        const QString text = QStringLiteral("x=%1, y=%2")
+                .arg(qRound(m_mouseImagePos.x()))
+                .arg(qRound(m_mouseImagePos.y()));
+        const QFontMetricsF metrics(p.font());
+        const QRectF box(m_lastMousePos.x() + 14, m_lastMousePos.y() + 14,
+                         metrics.horizontalAdvance(text) + 8, metrics.height() + 6);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(40, 40, 40, 180));
+        p.drawRoundedRect(box, 3, 3);
+        p.setPen(QColor(220, 220, 220));
+        p.drawText(box, Qt::AlignCenter, text);
+    }
+}
+
+double ImageViewerWidget::niceTickInterval() const
+{
+    const double s = effectiveScale();
+    const int steps[] = {10, 25, 50, 100, 250, 500, 1000, 2500};
+    for (int step : steps) {
+        if (step * s >= 40.0)
+            return step;
+    }
+    return 2500;
 }
 
 void ImageViewerWidget::wheelEvent(QWheelEvent *event)
@@ -142,6 +224,8 @@ void ImageViewerWidget::wheelEvent(QWheelEvent *event)
     const QPointF center((width() - m_image.width() * newScale) / 2.0,
                          (height() - m_image.height() * newScale) / 2.0);
     m_pan = mouse - center - imagePos * newScale;
+    clampPan();
+    updateMousePosition(mouse);
     update();
     event->accept();
 }
@@ -160,9 +244,11 @@ void ImageViewerWidget::mouseMoveEvent(QMouseEvent *event)
     if (m_dragging) {
         m_pan += event->position() - m_lastDragPos;
         m_lastDragPos = event->position();
+        clampPan();
         update();
         event->accept();
     }
+    updateMousePosition(event->position());
 }
 
 void ImageViewerWidget::mouseReleaseEvent(QMouseEvent *event)
@@ -186,6 +272,13 @@ void ImageViewerWidget::mouseDoubleClickEvent(QMouseEvent *event)
 void ImageViewerWidget::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
+    update();
+}
+
+void ImageViewerWidget::leaveEvent(QEvent *event)
+{
+    QWidget::leaveEvent(event);
+    m_mouseInsideImage = false;
     update();
 }
 
