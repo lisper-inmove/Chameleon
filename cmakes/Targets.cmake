@@ -24,6 +24,7 @@ qt_add_qml_module(chameleon_lib
         src/Main.qml
         src/app/AppState.qml
         src/components/ImageViewer.qml
+        src/components/ThumbnailBar.qml
 )
 
 target_sources(chameleon_lib PRIVATE
