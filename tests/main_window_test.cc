@@ -3,6 +3,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QDockWidget>
+#include <QElapsedTimer>
+#include <QThread>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
@@ -18,6 +20,24 @@
 using chameleon::AppState;
 using chameleon::ImageViewerWidget;
 using chameleon::MainWindow;
+
+namespace {
+
+bool waitForStatus(ImageViewerWidget *viewer, ImageViewerWidget::Status status,
+                   int timeoutMs = 5000)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        if (viewer->status() == status)
+            return true;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(5);
+    }
+    return viewer->status() == status;
+}
+
+} // namespace
 
 class MainWindowTest : public ::testing::Test
 {
@@ -101,7 +121,7 @@ TEST_F(MainWindowTest, OpenImageUpdatesStatusBarAndEnablesActions)
     QCoreApplication::processEvents();
 
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
-    EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
     EXPECT_EQ(label("statusFileName")->text().toStdString(), "test_image.png");
     EXPECT_EQ(label("statusSize")->text().toStdString(), "640 × 400");
@@ -129,6 +149,7 @@ TEST_F(MainWindowTest, ViewerRendersImagePixels)
     QCoreApplication::processEvents();
 
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
     const QImage shot = viewer->grab().toImage();
     int orange = 0;
     for (int y = 0; y < shot.height(); ++y) {
@@ -139,6 +160,25 @@ TEST_F(MainWindowTest, ViewerRendersImagePixels)
         }
     }
     EXPECT_GT(orange, 100);
+}
+
+TEST_F(MainWindowTest, DockCloseSyncsMenuToggle)
+{
+    auto *leftDock = s_window->findChild<QDockWidget *>("leftDock");
+    auto *toggle = action("leftDockToggle");
+    ASSERT_NE(leftDock, nullptr);
+    ASSERT_NE(toggle, nullptr);
+    EXPECT_TRUE(toggle->isChecked());
+
+    leftDock->close();  // like clicking the dock title-bar X
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(leftDock->isVisible());
+    EXPECT_FALSE(toggle->isChecked());
+
+    toggle->trigger();
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(leftDock->isVisible());
+    EXPECT_TRUE(toggle->isChecked());
 }
 
 TEST_F(MainWindowTest, DarkThemeChangesPalette)
@@ -163,7 +203,7 @@ TEST_F(MainWindowTest, OpeningMoreImagesKeepsNewSelection)
     EXPECT_EQ(list->currentRow(), 1);
 
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
-    EXPECT_EQ(viewer->status(), ImageViewerWidget::Error);  // the corrupt new image
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Error));  // the corrupt new image
 }
 
 TEST_F(MainWindowTest, ClosingCurrentTabShowsNeighborNotFirst)
@@ -178,7 +218,7 @@ TEST_F(MainWindowTest, ClosingCurrentTabShowsNeighborNotFirst)
 
     EXPECT_EQ(AppState::instance()->currentIndex(), 0);
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
-    EXPECT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
     EXPECT_EQ(viewer->imagePath().toStdString(),
               std::string(TEST_DATA_DIR "/test_image.png"));
 }
@@ -189,7 +229,7 @@ TEST_F(MainWindowTest, ReloadResetsZoomAndKeepsImage)
     QCoreApplication::processEvents();
 
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
-    ASSERT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
     // Zoom in and pan away from center
     AppState::instance()->setZoomFactor(2.0);
@@ -201,7 +241,7 @@ TEST_F(MainWindowTest, ReloadResetsZoomAndKeepsImage)
     auto *reload = action("reloadAction");
     ASSERT_NE(reload, nullptr);
     reload->trigger();
-    QCoreApplication::processEvents();
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
     // Back to the initial state: Fit zoom, origin-aligned (the image (0,0)
     // coincides with the ruler origin), image still shown
@@ -222,7 +262,7 @@ TEST_F(MainWindowTest, ClosingBackgroundTabKeepsCurrentImageAndPan)
     QCoreApplication::processEvents();
 
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
-    ASSERT_EQ(viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
     // Zoom in first so panning is legal (at Fit the image fills the width
     // and the new pan clamp pins horizontal movement to 0)

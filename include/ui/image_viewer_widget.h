@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QFutureWatcher>
 #include <QImage>
 #include <QPointF>
 #include <QWidget>
@@ -56,6 +57,8 @@ private:
     QPointF m_mouseImagePos;
     bool m_mouseInsideImage = false;
     bool m_dragging = false;
+    QFutureWatcher<QImage> m_loadWatcher;
+    QString m_pendingPath;
 };
 
 } // namespace chameleon

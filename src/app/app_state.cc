@@ -87,10 +87,15 @@ void AppState::closeImage(int index)
 {
     if (index < 0 || index >= m_images.size())
         return;
+    // Drop the per-image zoom entry so a later reopen starts fresh
+    m_zoomByImage.remove(m_images.at(index));
     m_images.removeAt(index);
     if (m_images.isEmpty()) {
         m_currentIndex = -1;
         m_imageInfo = QSize();
+        m_zoomMode = Fit;
+        m_zoomFactor = 1.0;
+        emit zoomChanged();
     } else if (m_currentIndex > index) {
         --m_currentIndex;
     } else if (m_currentIndex >= m_images.size()) {

@@ -106,6 +106,22 @@ TEST_F(AppStateTest, RecentFilesDedupeAndCapAtEight)
     EXPECT_EQ(s->recentFiles().first().toStdString(), "F:/img0.png");
 }
 
+TEST_F(AppStateTest, CloseImageResetsZoomState)
+{
+    auto *s = AppState::instance();
+    s->openImages({"F:/a.png"});
+    s->setZoomFactor(3.0);
+    EXPECT_EQ(s->zoomMode(), AppState::Custom);
+
+    s->closeImage(0);  // closing the last image resets zoom state
+    EXPECT_EQ(s->zoomMode(), AppState::Fit);
+    EXPECT_DOUBLE_EQ(s->zoomFactor(), 1.0);
+
+    s->openImages({"F:/a.png"});  // reopen: no stale per-image zoom
+    EXPECT_EQ(s->zoomMode(), AppState::Fit);
+    EXPECT_DOUBLE_EQ(s->zoomFactorForCurrent(), 1.0);
+}
+
 TEST_F(AppStateTest, SetCurrentIndexClamps)
 {
     auto *s = AppState::instance();

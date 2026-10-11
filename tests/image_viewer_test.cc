@@ -2,8 +2,10 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QThread>
 #include <QWheelEvent>
 #include <QtTest/QTest>
 
@@ -12,6 +14,24 @@
 
 using chameleon::AppState;
 using chameleon::ImageViewerWidget;
+
+namespace {
+
+bool waitForStatus(ImageViewerWidget *viewer, ImageViewerWidget::Status status,
+                   int timeoutMs = 5000)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        if (viewer->status() == status)
+            return true;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(5);
+    }
+    return viewer->status() == status;
+}
+
+} // namespace
 
 class ImageViewerTest : public ::testing::Test
 {
@@ -59,14 +79,14 @@ TEST_F(ImageViewerTest, LoadingValidImageReachesReadyAndSetsInfo)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    EXPECT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     EXPECT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
 }
 
 TEST_F(ImageViewerTest, LoadingCorruptImageShowsErrorState)
 {
     m_viewer->setImage(TEST_DATA_DIR "/not_an_image.png");
-    EXPECT_EQ(m_viewer->status(), ImageViewerWidget::Error);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Error));
     EXPECT_EQ(AppState::instance()->imageInfo(), QSize());
 }
 
@@ -74,7 +94,7 @@ TEST_F(ImageViewerTest, RendersImagePixels)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
 
     const QImage shot = m_viewer->grab().toImage();
     const int orange = countColor(shot, [](const QColor &c) {
@@ -87,7 +107,7 @@ TEST_F(ImageViewerTest, ImageOriginAlignsWithRulerOriginOnLoad)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
 
     // Image (0,0) sits exactly at the ruler origin, i.e. the canvas
     // top-left corner (left ruler 44px, top ruler 20px)
@@ -100,7 +120,7 @@ TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     AppState::instance()->setZoomMode(AppState::Actual);  // scale 1.0
 
     // Pick an image point and zoom with the cursor exactly on it: the
@@ -129,7 +149,7 @@ TEST_F(ImageViewerTest, PanIsClampedWhenImageSmallerThanViewport)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
@@ -153,7 +173,7 @@ TEST_F(ImageViewerTest, PanIsClampedWhenImageLargerThanViewport)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     AppState::instance()->setZoomFactor(2.0);
     QCoreApplication::processEvents();
 
@@ -169,7 +189,7 @@ TEST_F(ImageViewerTest, MousePositionTracksImageCoordinates)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
@@ -188,7 +208,7 @@ TEST_F(ImageViewerTest, RulerTicksAreDrawnAtImageOrigin)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
@@ -212,11 +232,58 @@ TEST_F(ImageViewerTest, RulerTicksAreDrawnAtImageOrigin)
     EXPECT_GT(leftTicks, 20);  // y ticks along the left edge
 }
 
+TEST_F(ImageViewerTest, LoadingStateShowsBeforeAsyncDecodeCompletes)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    // Loading is set synchronously; the decode completes asynchronously
+    EXPECT_EQ(m_viewer->status(), ImageViewerWidget::Loading);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+}
+
+TEST_F(ImageViewerTest, TinyImageFitScaleIsCappedAtMax)
+{
+    // A 30x30 image would fit at scale ~19 without a cap; the spec's
+    // custom zoom range is 10%-800%, so Fit must not exceed it
+    const QString tiny = QDir::tempPath() + "/chameleon_tiny_test.png";
+    QImage img(30, 30, QImage::Format_RGB32);
+    img.fill(Qt::blue);
+    ASSERT_TRUE(img.save(tiny, "PNG"));
+
+    AppState::instance()->openImages({tiny});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Fit);
+
+    // Scale = distance between image points (1,0) and (0,0) in view space
+    const double scale = m_viewer->mapImageToView(QPointF(1, 0)).x()
+                       - m_viewer->mapImageToView(QPointF(0, 0)).x();
+    EXPECT_NEAR(scale, 8.0, 0.01);
+
+    QFile::remove(tiny);
+}
+
+TEST_F(ImageViewerTest, HorizontalWheelDoesNotChangeZoom)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    AppState::instance()->setZoomMode(AppState::Actual);
+    QCoreApplication::processEvents();
+
+    // Pure horizontal wheel (trackpad horizontal swipe)
+    QWheelEvent horizontal(QPointF(400, 300), QPointF(400, 300), QPoint(), QPoint(120, 0),
+                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(m_viewer, &horizontal);
+    EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Actual);
+    EXPECT_DOUBLE_EQ(AppState::instance()->zoomFactor(), 1.0);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
     m_viewer->setImage(AppState::instance()->currentImage());
-    ASSERT_EQ(m_viewer->status(), ImageViewerWidget::Ready);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
 
     const QString out = QDir::tempPath() + "/chameleon_save_test.png";
     QFile::remove(out);

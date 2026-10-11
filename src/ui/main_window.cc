@@ -120,9 +120,11 @@ private:
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
+    // Docks first: the view menu uses their toggleViewAction() so the
+    // check state always matches visibility (incl. title-bar closes)
+    setupDocks();
     setupMenus();
     setupToolBar();
-    setupDocks();
     setupStatusBar();
 
     m_viewer = new ImageViewerWidget(this);
@@ -179,19 +181,19 @@ void MainWindow::setupMenus()
 
     auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图(&V)"));
 
-    auto *leftToggle = viewMenu->addAction(QStringLiteral("缩略图栏"));
-    leftToggle->setCheckable(true);
-    leftToggle->setChecked(true);
+    // QDockWidget::toggleViewAction() keeps its check state in sync with
+    // the dock's visibility, including closes via the title bar
+    auto *leftToggle = m_leftDock->toggleViewAction();
+    leftToggle->setText(QStringLiteral("缩略图栏"));
+    leftToggle->setObjectName("leftDockToggle");
     leftToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
-    connect(leftToggle, &QAction::toggled, this,
-            [this](bool on) { m_leftDock->setVisible(on); });
+    viewMenu->addAction(leftToggle);
 
-    auto *rightToggle = viewMenu->addAction(QStringLiteral("侧边栏"));
-    rightToggle->setCheckable(true);
-    rightToggle->setChecked(true);
+    auto *rightToggle = m_rightDock->toggleViewAction();
+    rightToggle->setText(QStringLiteral("侧边栏"));
+    rightToggle->setObjectName("rightDockToggle");
     rightToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
-    connect(rightToggle, &QAction::toggled, this,
-            [this](bool on) { m_rightDock->setVisible(on); });
+    viewMenu->addAction(rightToggle);
 
     viewMenu->addSeparator();
 

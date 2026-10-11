@@ -32,6 +32,7 @@ target_include_directories(chameleon_lib PUBLIC
 # OpenCV 5 exports its modules without the OpenCV:: namespace
 target_link_libraries(chameleon_lib PUBLIC
     Qt6::Widgets
+    Qt6::Concurrent
     opencv_core
     opencv_imgproc
     opencv_imgcodecs

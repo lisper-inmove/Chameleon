@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
+#include <QtConcurrent/QtConcurrent>
 
 #include <algorithm>
 
@@ -32,6 +33,27 @@ ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
             m_pan = QPointF();
         update();
     });
+
+    connect(&m_loadWatcher, &QFutureWatcher<QImage>::finished, this, [this] {
+        const QString requested = m_pendingPath;
+        m_pendingPath.clear();
+        // Ignore results superseded by a newer setImage() call
+        if (requested.isEmpty() || requested != m_path)
+            return;
+        const QImage image = m_loadWatcher.result();
+        if (image.isNull()) {
+            m_image = QImage();
+            AppState::instance()->setImageInfo(QSize());
+            m_status = Error;
+        } else {
+            m_image = image;
+            AppState::instance()->setImageInfo(image.size());
+            m_status = Ready;
+            // Initial state: image (0,0) coincides with the ruler origin
+            alignToOrigin();
+        }
+        update();
+    });
 }
 
 void ImageViewerWidget::setImage(const QString &path)
@@ -41,30 +63,25 @@ void ImageViewerWidget::setImage(const QString &path)
     m_dragging = false;
     m_mouseInsideImage = false;
     if (path.isEmpty()) {
+        m_pendingPath.clear();
+        m_loadWatcher.setFuture(QFuture<QImage>());  // cancel pending decode
         m_image = QImage();
         AppState::instance()->setImageInfo(QSize());
         m_status = NoImage;
         update();
         return;
     }
+    m_pendingPath = path;
     m_status = Loading;
     update();
 
-    QImageReader reader(path);
-    reader.setAutoTransform(true);
-    const QImage image = reader.read();
-    if (image.isNull()) {
-        m_image = QImage();
-        AppState::instance()->setImageInfo(QSize());
-        m_status = Error;
-    } else {
-        m_image = image;
-        AppState::instance()->setImageInfo(image.size());
-        m_status = Ready;
-        // Initial state: image (0,0) coincides with the ruler origin
-        alignToOrigin();
-    }
-    update();
+    // Decode off the UI thread so the Loading state is real and large
+    // images don't freeze the window
+    m_loadWatcher.setFuture(QtConcurrent::run([path] {
+        QImageReader reader(path);
+        reader.setAutoTransform(true);
+        return reader.read();
+    }));
 }
 
 bool ImageViewerWidget::saveAs(const QString &path) const
@@ -89,10 +106,13 @@ double ImageViewerWidget::effectiveScale() const
     case AppState::Custom:
         return state->zoomFactorForCurrent();
     case AppState::Fit:
-    default:
+    default: {
         const QRectF canvas = canvasRect();
-        return std::min(canvas.width() / m_image.width(),
-                        canvas.height() / m_image.height());
+        // Fit never exceeds the custom zoom range (kMaxScale); otherwise
+        // tiny images would fit at >800% and zooming in would shrink them
+        return std::min({canvas.width() / m_image.width(),
+                         canvas.height() / m_image.height(), kMaxScale});
+    }
     }
 }
 
@@ -248,6 +268,9 @@ double ImageViewerWidget::niceTickInterval() const
 void ImageViewerWidget::wheelEvent(QWheelEvent *event)
 {
     if (m_status != Ready)
+        return;
+    // Ignore purely horizontal wheel/trackpad swipes
+    if (event->angleDelta().y() == 0)
         return;
     auto *state = AppState::instance();
     const double oldScale = effectiveScale();
