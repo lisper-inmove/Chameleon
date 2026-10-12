@@ -8,6 +8,7 @@ class QMenu;
 
 namespace chameleon {
 
+class FilterPanel;
 class ImageViewerWidget;
 
 class MainWindow : public QMainWindow
@@ -46,6 +47,9 @@ private:
     QAction *m_saveAction = nullptr;
     QAction *m_reloadAction = nullptr;
     QAction *m_closeAction = nullptr;
+    QAction *m_undoAction = nullptr;
+    QAction *m_redoAction = nullptr;
+    FilterPanel *m_filterPanel = nullptr;
     QAction *m_fitAction = nullptr;
     QAction *m_actualAction = nullptr;
     QAction *m_resetZoomAction = nullptr;

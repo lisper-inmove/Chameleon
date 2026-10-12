@@ -2,7 +2,9 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDir>
 #include <QDockWidget>
+#include <QFile>
 #include <QElapsedTimer>
 #include <QThread>
 #include <QLabel>
@@ -10,6 +12,9 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QPalette>
+#include <QPushButton>
+#include <QSignalSpy>
+#include <QSlider>
 #include <QStatusBar>
 #include <QtTest/QTest>
 
@@ -87,6 +92,7 @@ TEST_F(MainWindowTest, HasMenusToolbarDocksAndViewer)
     for (auto *m : menus)
         titles << m->title();
     EXPECT_TRUE(titles.contains("文件(&F)"));
+    EXPECT_TRUE(titles.contains("编辑(&E)"));
     EXPECT_TRUE(titles.contains("视图(&V)"));
     EXPECT_TRUE(titles.contains("帮助(&H)"));
 
@@ -179,6 +185,66 @@ TEST_F(MainWindowTest, DockCloseSyncsMenuToggle)
     QCoreApplication::processEvents();
     EXPECT_TRUE(leftDock->isVisible());
     EXPECT_TRUE(toggle->isChecked());
+}
+
+TEST_F(MainWindowTest, FilterPipelineWiresUpThroughPanelAndEditMenu)
+{
+    EXPECT_FALSE(action("undoAction")->isEnabled());
+    EXPECT_FALSE(action("redoAction")->isEnabled());
+
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+    const QImage before = viewer->grab().toImage();
+
+    auto *brightness = s_window->findChild<QSlider *>("brightnessSlider");
+    ASSERT_NE(brightness, nullptr);
+    EXPECT_TRUE(brightness->isEnabled());
+
+    QSignalSpy spy(viewer, &ImageViewerWidget::filterPreviewChanged);
+    brightness->setValue(50);
+    ASSERT_TRUE(spy.wait(3000));
+    EXPECT_NE(viewer->grab().toImage(), before);
+
+    auto *apply = s_window->findChild<QPushButton *>("applyButton");
+    ASSERT_NE(apply, nullptr);
+    apply->click();
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+    EXPECT_EQ(brightness->value(), 0);  // sliders reset after apply
+
+    action("undoAction")->trigger();
+    EXPECT_EQ(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("redoAction")->isEnabled());
+    EXPECT_FALSE(action("undoAction")->isEnabled());
+}
+
+TEST_F(MainWindowTest, ThumbnailsRenderViaOpenCv)
+{
+    // Chinese filename exercises the OpenCV UTF-8 loader in the thumbnail
+    // path (thumbnails are decoded by OpenCV, not Qt image plugins)
+    const QString chinese = QDir::tempPath() + QString::fromUtf8("/缩略图_测试.png");
+    QFile::remove(chinese);
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", chinese));
+
+    AppState::instance()->openImages({chinese});
+    QCoreApplication::processEvents();
+
+    auto *list = s_window->findChild<QListWidget *>("thumbnailList");
+    ASSERT_NE(list, nullptr);
+    ASSERT_EQ(list->count(), 1);
+    QWidget *itemWidget = list->itemWidget(list->item(0));
+    ASSERT_NE(itemWidget, nullptr);
+
+    bool foundPixmap = false;
+    const auto labels = itemWidget->findChildren<QLabel *>();
+    for (auto *label : labels) {
+        if (!label->pixmap().isNull())
+            foundPixmap = true;
+    }
+    EXPECT_TRUE(foundPixmap);
+
+    QFile::remove(chinese);
 }
 
 TEST_F(MainWindowTest, DarkThemeChangesPalette)

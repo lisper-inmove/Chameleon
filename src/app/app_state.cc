@@ -35,7 +35,7 @@ void AppState::setCurrentIndex(int index)
     // currentRowChanged(-1) and must not reset the selection to 0
     if (index < 0)
         return;
-    const int clamped = qBound(0, index, m_images.size() - 1);
+    const int clamped = qBound(0, index, int(m_images.size()) - 1);
     if (clamped == m_currentIndex)
         return;
     m_currentIndex = clamped;
@@ -68,7 +68,7 @@ void AppState::openImages(const QStringList &paths)
 {
     if (paths.isEmpty())
         return;
-    const int firstNew = m_images.size();
+    const int firstNew = int(m_images.size());
     m_images.append(paths);
     m_currentIndex = firstNew;
     for (const QString &path : paths) {
@@ -99,7 +99,7 @@ void AppState::closeImage(int index)
     } else if (m_currentIndex > index) {
         --m_currentIndex;
     } else if (m_currentIndex >= m_images.size()) {
-        m_currentIndex = m_images.size() - 1;
+        m_currentIndex = int(m_images.size()) - 1;
     }
     emit imagesChanged();
     emit currentIndexChanged(m_currentIndex);

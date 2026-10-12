@@ -23,8 +23,12 @@
 #include <functional>
 #include <utility>
 
+#include <opencv2/imgproc.hpp>
+
 #include "app/app_state.h"
+#include "processing/image_io.h"
 #include "ui/filter_panel.h"
+#include "ui/image_conversion.h"
 #include "ui/image_viewer_widget.h"
 #include "utils/file_utils.h"
 
@@ -59,9 +63,9 @@ QString formatSize(qint64 bytes)
         return {};
     if (bytes < 1024)
         return QStringLiteral("%1 B").arg(bytes);
-    if (bytes < 1024 * 1024)
-        return QStringLiteral("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
-    return QStringLiteral("%1 MB").arg(bytes / 1024.0 / 1024.0, 0, 'f', 1);
+    if (bytes < qint64(1024) * 1024)
+        return QStringLiteral("%1 KB").arg(double(bytes) / 1024.0, 0, 'f', 1);
+    return QStringLiteral("%1 MB").arg(double(bytes) / 1024.0 / 1024.0, 0, 'f', 1);
 }
 
 // Per-item widget: thumbnail + name + close button.
@@ -85,8 +89,21 @@ public:
         layout->setSpacing(4);
 
         auto *thumb = new QLabel(this);
-        QPixmap pixmap(path);
-        thumb->setPixmap(pixmap.scaled(96, 72, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        // Load and downscale with OpenCV (Qt image plugins are not used)
+        const cv::Mat mat = ImageIO::imreadUtf8(path.toStdString());
+        if (!mat.empty()) {
+            cv::Mat thumbMat;
+            const double scale = std::min(96.0 / mat.cols, 72.0 / mat.rows);
+            if (scale < 1.0) {
+                cv::resize(mat, thumbMat,
+                           cv::Size(std::max(1, int(mat.cols * scale)),
+                                    std::max(1, int(mat.rows * scale))),
+                           0, 0, cv::INTER_AREA);
+            } else {
+                thumbMat = mat;
+            }
+            thumb->setPixmap(pixmapFromMat(thumbMat));
+        }
         thumb->setAlignment(Qt::AlignCenter);
 
         auto *name = new QLabel(QFileInfo(path).fileName(), this);
@@ -139,6 +156,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(state, &AppState::recentFilesChanged, this, &MainWindow::rebuildRecentFilesMenu);
     connect(state, &AppState::themeChanged, this, [this] { applyTheme(); });
 
+    // Filter pipeline wiring: panel -> viewer params, viewer -> panel
+    // reset mirroring and undo/redo action enablement
+    connect(m_filterPanel, &FilterPanel::filterParamsChanged,
+            m_viewer, &ImageViewerWidget::setFilterParams);
+    connect(m_filterPanel, &FilterPanel::applyClicked,
+            m_viewer, &ImageViewerWidget::applyFilter);
+    connect(m_filterPanel, &FilterPanel::resetClicked, m_viewer, [this] {
+        m_viewer->setFilterParams(0, 0, 0);
+    });
+    connect(m_viewer, &ImageViewerWidget::filterParamsReset,
+            m_filterPanel, &FilterPanel::resetSliders);
+    connect(m_viewer, &ImageViewerWidget::canUndoChanged,
+            m_undoAction, &QAction::setEnabled);
+    connect(m_viewer, &ImageViewerWidget::canRedoChanged,
+            m_redoAction, &QAction::setEnabled);
+
     applyTheme();
     onCurrentImageChanged();
     rebuildRecentFilesMenu();
@@ -178,6 +211,20 @@ void MainWindow::setupMenus()
 
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("退出(&X)"), qApp, &QCoreApplication::quit);
+
+    auto *editMenu = menuBar()->addMenu(QStringLiteral("编辑(&E)"));
+
+    m_undoAction = editMenu->addAction(QStringLiteral("撤销(&U)"), this,
+                                       [this] { m_viewer->undo(); });
+    m_undoAction->setObjectName("undoAction");
+    m_undoAction->setShortcut(QKeySequence::Undo);  // Ctrl+Z
+    m_undoAction->setEnabled(false);
+
+    m_redoAction = editMenu->addAction(QStringLiteral("重做(&Y)"), this,
+                                       [this] { m_viewer->redo(); });
+    m_redoAction->setObjectName("redoAction");
+    m_redoAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Y")));
+    m_redoAction->setEnabled(false);
 
     auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图(&V)"));
 
@@ -253,8 +300,8 @@ void MainWindow::setupToolBar()
     toolBar->addAction(findChild<QAction *>("openAction"));
     toolBar->addAction(m_saveAction);
     toolBar->addAction(m_reloadAction);
-    toolBar->addAction(QStringLiteral("撤销"))->setEnabled(false);
-    toolBar->addAction(QStringLiteral("重做"))->setEnabled(false);
+    toolBar->addAction(m_undoAction);
+    toolBar->addAction(m_redoAction);
 
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -287,7 +334,8 @@ void MainWindow::setupDocks()
     auto *rightPanel = new QWidget(this);
     auto *rightLayout = new QVBoxLayout(rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->addWidget(new FilterPanel(rightPanel));
+    m_filterPanel = new FilterPanel(rightPanel);
+    rightLayout->addWidget(m_filterPanel);
 
     m_rightDock = new QDockWidget(QStringLiteral("面板"), this);
     m_rightDock->setObjectName("rightDock");
@@ -335,7 +383,7 @@ void MainWindow::openImages()
 {
     const QStringList files = QFileDialog::getOpenFileNames(
         this, QStringLiteral("打开图片"), QString(),
-        QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.webp *.gif *.tif *.tiff);;"
+        QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.webp *.tif *.tiff);;"
                        "所有文件 (*.*)"));
     if (files.isEmpty())
         return;

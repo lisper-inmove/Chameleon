@@ -7,6 +7,8 @@
 #include <QFileInfo>
 #include <QThread>
 #include <QWheelEvent>
+#include <QSignalSpy>
+#include <QThreadPool>
 #include <QtTest/QTest>
 
 #include "app/app_state.h"
@@ -277,6 +279,92 @@ TEST_F(ImageViewerTest, HorizontalWheelDoesNotChangeZoom)
     QCoreApplication::sendEvent(m_viewer, &horizontal);
     EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Actual);
     EXPECT_DOUBLE_EQ(AppState::instance()->zoomFactor(), 1.0);
+}
+
+TEST_F(ImageViewerTest, FilterParamsChangeDisplayedPixels)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    QSignalSpy spy(m_viewer, &ImageViewerWidget::filterPreviewChanged);
+    m_viewer->setFilterParams(50, 0, 0);
+    ASSERT_TRUE(spy.wait(3000));
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    // Neutral params reset synchronously (implicit sharing, no thread)
+    m_viewer->setFilterParams(0, 0, 0);
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
+TEST_F(ImageViewerTest, RapidParamChangesCoalesceIntoOnePreview)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    // The preview computation must run on a dedicated single-worker pool:
+    // this bounds the CPU cost even under bursts of parameter changes.
+    // (The previous implementation spawned one global-pool task per
+    // change, pegging every core - completion signals alone cannot show
+    // that because setFuture() detaches the superseded futures.)
+    auto *pool = m_viewer->findChild<QThreadPool *>();
+    ASSERT_NE(pool, nullptr);
+    EXPECT_EQ(pool->maxThreadCount(), 1);
+
+    // Simulate a slider drag: 50 value changes in quick succession;
+    // they must coalesce into a single debounced computation
+    QSignalSpy spy(m_viewer, &ImageViewerWidget::filterPreviewChanged);
+    for (int v = 1; v <= 50; ++v)
+        m_viewer->setFilterParams(v, 0, 0);
+
+    ASSERT_TRUE(spy.wait(3000));  // the single debounced preview arrives
+
+    // Give any erroneously launched straggler tasks time to report in
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 300) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(5);
+    }
+    EXPECT_EQ(spy.count(), 1);
+}
+
+TEST_F(ImageViewerTest, ApplyThenUndoRestoresOriginalPixels)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage original = m_viewer->grab().toImage();
+
+    QSignalSpy spy(m_viewer, &ImageViewerWidget::filterPreviewChanged);
+    m_viewer->setFilterParams(80, 0, 0);
+    ASSERT_TRUE(spy.wait(3000));
+    EXPECT_NE(m_viewer->grab().toImage(), original);
+
+    m_viewer->applyFilter();
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), original);
+
+    m_viewer->redo();
+    EXPECT_NE(m_viewer->grab().toImage(), original);
+}
+
+TEST_F(ImageViewerTest, LoadsImageWithChineseFilename)
+{
+    // OpenCV imread must handle UTF-8 (non-ASCII) Windows paths, since
+    // the image pipeline no longer goes through Qt's file APIs
+    const QString chinese = QDir::tempPath() + QString::fromUtf8("/测试图片_中文.png");
+    QFile::remove(chinese);
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", chinese));
+
+    AppState::instance()->openImages({chinese});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
+
+    QFile::remove(chinese);
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

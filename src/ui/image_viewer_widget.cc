@@ -1,7 +1,6 @@
 #include "ui/image_viewer_widget.h"
 
 #include <QFileInfo>
-#include <QImageReader>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
@@ -10,6 +9,9 @@
 #include <algorithm>
 
 #include "app/app_state.h"
+#include "processing/filter_processor.h"
+#include "processing/image_io.h"
+#include "ui/image_conversion.h"
 
 namespace chameleon {
 
@@ -20,6 +22,24 @@ constexpr double kMaxScale = 8.0;
 // band (y ticks), Photoshop-style
 constexpr int kLeftRulerWidth = 44;
 constexpr int kTopRulerHeight = 20;
+// Quiet period before a coalesced preview computation starts
+constexpr int kFilterDebounceMs = 50;
+
+// Normalizes uncommon bit depths to 8-bit so the rest of the pipeline
+// (filters, display) works uniformly; 8-bit passes through untouched
+cv::Mat normalizeTo8u(const cv::Mat &mat)
+{
+    if (mat.depth() == CV_8U)
+        return mat;
+    cv::Mat out;
+    if (mat.depth() == CV_16U)
+        mat.convertTo(out, CV_8U, 1.0 / 257.0);
+    else if (mat.depth() == CV_32F || mat.depth() == CV_64F)
+        mat.convertTo(out, CV_8U, 255.0);
+    else
+        return mat;
+    return out;
+}
 } // namespace
 
 ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
@@ -34,26 +54,85 @@ ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
         update();
     });
 
-    connect(&m_loadWatcher, &QFutureWatcher<QImage>::finished, this, [this] {
+    connect(&m_loadWatcher, &QFutureWatcher<cv::Mat>::finished, this, [this] {
         const QString requested = m_pendingPath;
         m_pendingPath.clear();
         // Ignore results superseded by a newer setImage() call
         if (requested.isEmpty() || requested != m_path)
             return;
-        const QImage image = m_loadWatcher.result();
-        if (image.isNull()) {
-            m_image = QImage();
-            AppState::instance()->setImageInfo(QSize());
+        const cv::Mat mat = m_loadWatcher.result();
+        if (mat.empty()) {
+            m_image = cv::Mat();
+            m_original = cv::Mat();
+            updateDisplayPixmap();
+            updateImageInfo();
             m_status = Error;
         } else {
-            m_image = image;
-            AppState::instance()->setImageInfo(image.size());
+            m_image = mat;
+            m_original = mat;
+            updateDisplayPixmap();
+            updateImageInfo();
             m_status = Ready;
             // Initial state: image (0,0) coincides with the ruler origin
             alignToOrigin();
         }
+        resetFilterState();
         update();
     });
+
+    // Dedicated single-worker pool: a burst of parameter changes can never
+    // occupy more than one core (the old implementation spawned one
+    // global-pool task per change and pegged every core)
+    m_filterPool = new QThreadPool(this);
+    m_filterPool->setMaxThreadCount(1);
+
+    // Coalesce slider-drag bursts: only compute after a short quiet period
+    m_filterDebounce.setSingleShot(true);
+    m_filterDebounce.setInterval(kFilterDebounceMs);
+    connect(&m_filterDebounce, &QTimer::timeout,
+            this, &ImageViewerWidget::startFilterPreview);
+
+    connect(&m_filterWatcher, &QFutureWatcher<cv::Mat>::finished, this, [this] {
+        m_filterBusy = false;
+        const FilterParams done = m_runningParams;
+        if (m_status != Ready)
+            return;  // the image changed while computing; discard the result
+        if (m_params.isNeutral()) {
+            // Filters were reset while computing: show the original image
+            m_image = m_original;
+            updateDisplayPixmap();
+            update();
+            emit filterPreviewChanged();
+            return;
+        }
+        if (!(m_pendingParams == done)) {
+            // Newer parameters arrived while computing; skip the stale
+            // result and compute the latest one instead
+            if (!m_filterDebounce.isActive())
+                startFilterPreview();
+            return;
+        }
+        m_image = m_filterWatcher.result();
+        updateDisplayPixmap();
+        update();
+        emit filterPreviewChanged();
+    });
+}
+
+void ImageViewerWidget::startFilterPreview()
+{
+    if (m_status != Ready || m_pendingParams.isNeutral() || m_filterBusy)
+        return;  // the finished handler picks up pending params when busy
+    m_filterBusy = true;
+    m_runningParams = m_pendingParams;
+    // cv::Mat is refcounted; FilterProcessor never mutates its input, so
+    // reading m_original on the worker thread is safe
+    const cv::Mat source = m_original;
+    const FilterParams params = m_runningParams;
+    m_filterWatcher.setFuture(QtConcurrent::run(m_filterPool, [source, params] {
+        return FilterProcessor::apply(source, params.brightness,
+                                      params.contrast, params.saturation);
+    }));
 }
 
 void ImageViewerWidget::setImage(const QString &path)
@@ -64,10 +143,13 @@ void ImageViewerWidget::setImage(const QString &path)
     m_mouseInsideImage = false;
     if (path.isEmpty()) {
         m_pendingPath.clear();
-        m_loadWatcher.setFuture(QFuture<QImage>());  // cancel pending decode
-        m_image = QImage();
-        AppState::instance()->setImageInfo(QSize());
+        m_loadWatcher.setFuture(QFuture<cv::Mat>());  // cancel pending decode
+        m_image = cv::Mat();
+        m_original = cv::Mat();
+        updateDisplayPixmap();
+        updateImageInfo();
         m_status = NoImage;
+        resetFilterState();
         update();
         return;
     }
@@ -76,17 +158,123 @@ void ImageViewerWidget::setImage(const QString &path)
     update();
 
     // Decode off the UI thread so the Loading state is real and large
-    // images don't freeze the window
+    // images don't freeze the window; OpenCV handles the decode
     m_loadWatcher.setFuture(QtConcurrent::run([path] {
-        QImageReader reader(path);
-        reader.setAutoTransform(true);
-        return reader.read();
+        return normalizeTo8u(ImageIO::imreadUtf8(path.toStdString()));
     }));
 }
 
 bool ImageViewerWidget::saveAs(const QString &path) const
 {
-    return m_status == Ready && m_image.save(path, "PNG");
+    if (m_status != Ready || m_image.empty())
+        return false;
+    return ImageIO::imwriteUtf8(path.toStdString(), m_image);
+}
+
+void ImageViewerWidget::updateDisplayPixmap()
+{
+    m_displayPixmap = pixmapFromMat(m_image);
+}
+
+void ImageViewerWidget::updateImageInfo()
+{
+    AppState::instance()->setImageInfo(
+        m_image.empty() ? QSize() : QSize(m_image.cols, m_image.rows));
+}
+
+void ImageViewerWidget::resetFilterState()
+{
+    m_params = {};
+    m_pendingParams = {};
+    m_filterDebounce.stop();
+    m_undoStack.clear();
+    m_redoStack.clear();
+    emit filterParamsReset();
+    emit canUndoChanged(false);
+    emit canRedoChanged(false);
+}
+
+bool ImageViewerWidget::hasActiveFilters() const
+{
+    return !m_params.isNeutral();
+}
+
+void ImageViewerWidget::setFilterParams(double brightness, double contrast,
+                                        double saturation)
+{
+    if (m_status != Ready)
+        return;
+    m_params = {brightness, contrast, saturation};
+    m_pendingParams = m_params;
+    if (m_params.isNeutral()) {
+        m_filterDebounce.stop();
+        m_pendingParams = {};
+        if (!m_filterBusy) {
+            m_image = m_original;  // cv::Mat is refcounted, no pixel copy
+            updateDisplayPixmap();
+            update();
+            emit filterPreviewChanged();
+        }
+        return;
+    }
+    m_filterDebounce.start();  // restarted on every change; coalesces bursts
+}
+
+void ImageViewerWidget::applyFilter()
+{
+    if (m_status != Ready || !hasActiveFilters())
+        return;
+    m_undoStack.push(m_original.clone());
+    while (m_undoStack.size() > 10)
+        m_undoStack.removeFirst();
+    m_redoStack.clear();
+    m_original = m_image;
+    m_params = {};
+    m_pendingParams = {};
+    m_filterDebounce.stop();
+    m_image = m_original;
+    updateDisplayPixmap();
+    update();
+    emit filterPreviewChanged();
+    emit filterParamsReset();
+    emit canUndoChanged(true);
+    emit canRedoChanged(false);
+}
+
+void ImageViewerWidget::undo()
+{
+    if (m_status != Ready || m_undoStack.isEmpty())
+        return;
+    m_redoStack.push(m_original.clone());
+    m_original = m_undoStack.pop();
+    m_params = {};
+    m_pendingParams = {};
+    m_filterDebounce.stop();
+    m_image = m_original;
+    updateDisplayPixmap();
+    update();
+    emit filterPreviewChanged();
+    emit filterParamsReset();
+    emit canUndoChanged(!m_undoStack.isEmpty());
+    emit canRedoChanged(true);
+}
+
+void ImageViewerWidget::redo()
+{
+    if (m_status != Ready || m_redoStack.isEmpty())
+        return;
+    m_undoStack.push(m_original.clone());
+    m_original = m_redoStack.pop();
+    m_params = {};
+    m_pendingParams = {};
+    m_filterDebounce.stop();
+    m_image = m_original;
+    updateDisplayPixmap();
+    update();
+    emit filterPreviewChanged();
+    emit filterParamsReset();
+    emit canUndoChanged(true);
+    emit canRedoChanged(!m_redoStack.isEmpty());
 }
 
 QRectF ImageViewerWidget::canvasRect() const
@@ -97,7 +285,7 @@ QRectF ImageViewerWidget::canvasRect() const
 
 double ImageViewerWidget::effectiveScale() const
 {
-    if (m_image.isNull())
+    if (m_image.empty())
         return 1.0;
     const auto *state = AppState::instance();
     switch (state->zoomMode()) {
@@ -110,8 +298,8 @@ double ImageViewerWidget::effectiveScale() const
         const QRectF canvas = canvasRect();
         // Fit never exceeds the custom zoom range (kMaxScale); otherwise
         // tiny images would fit at >800% and zooming in would shrink them
-        return std::min({canvas.width() / m_image.width(),
-                         canvas.height() / m_image.height(), kMaxScale});
+        return std::min({canvas.width() / m_image.cols,
+                         canvas.height() / m_image.rows, kMaxScale});
     }
     }
 }
@@ -120,8 +308,8 @@ QPointF ImageViewerWidget::imageTopLeft() const
 {
     const double s = effectiveScale();
     const QRectF canvas = canvasRect();
-    return QPointF(canvas.left() + (canvas.width() - m_image.width() * s) / 2.0 + m_pan.x(),
-                   canvas.top() + (canvas.height() - m_image.height() * s) / 2.0 + m_pan.y());
+    return QPointF(canvas.left() + (canvas.width() - m_image.cols * s) / 2.0 + m_pan.x(),
+                   canvas.top() + (canvas.height() - m_image.rows * s) / 2.0 + m_pan.y());
 }
 
 QPointF ImageViewerWidget::mapImageToView(const QPointF &imagePos) const
@@ -133,24 +321,24 @@ QPointF ImageViewerWidget::mapImageToView(const QPointF &imagePos) const
 
 void ImageViewerWidget::clampPan()
 {
-    if (m_image.isNull())
+    if (m_image.empty())
         return;
     const double s = effectiveScale();
     const QRectF canvas = canvasRect();
-    const double rangeX = std::abs(m_image.width() * s - canvas.width()) / 2.0;
-    const double rangeY = std::abs(m_image.height() * s - canvas.height()) / 2.0;
+    const double rangeX = std::abs(m_image.cols * s - canvas.width()) / 2.0;
+    const double rangeY = std::abs(m_image.rows * s - canvas.height()) / 2.0;
     m_pan.setX(std::clamp(m_pan.x(), -rangeX, rangeX));
     m_pan.setY(std::clamp(m_pan.y(), -rangeY, rangeY));
 }
 
 void ImageViewerWidget::alignToOrigin()
 {
-    if (m_image.isNull())
+    if (m_image.empty())
         return;
     const double s = effectiveScale();
     const QRectF canvas = canvasRect();
-    m_pan = QPointF(-(canvas.width() - m_image.width() * s) / 2.0,
-                    -(canvas.height() - m_image.height() * s) / 2.0);
+    m_pan = QPointF(-(canvas.width() - m_image.cols * s) / 2.0,
+                    -(canvas.height() - m_image.rows * s) / 2.0);
 }
 
 void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
@@ -165,7 +353,7 @@ void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
     const QPointF img((viewPos.x() - tl.x()) / s, (viewPos.y() - tl.y()) / s);
     m_mouseInsideImage = canvasRect().contains(viewPos)
             && img.x() >= 0 && img.y() >= 0
-            && img.x() < m_image.width() && img.y() < m_image.height();
+            && img.x() < m_image.cols && img.y() < m_image.rows;
     if (m_mouseInsideImage)
         m_mouseImagePos = img;
     update();
@@ -197,14 +385,14 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
 
     const double s = effectiveScale();
     const QPointF tl = imageTopLeft();
-    const QRectF target(tl, QSizeF(m_image.width() * s, m_image.height() * s));
+    const QRectF target(tl, QSizeF(m_image.cols * s, m_image.rows * s));
 
     // The image lives strictly inside the canvas; the ruler strips
     // outside it are never covered
     p.save();
     p.setClipRect(canvas);
     p.setRenderHint(QPainter::SmoothPixmapTransform, s < 2.0);
-    p.drawImage(target, m_image);
+    p.drawPixmap(target, m_displayPixmap, QRectF(m_displayPixmap.rect()));
     p.restore();
 
     // Ruler strips: separator lines along the canvas border
@@ -220,7 +408,8 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
     p.setFont(tickFont);
 
     const double interval = niceTickInterval();
-    for (double ix = 0; ix <= m_image.width(); ix += interval) {
+    for (int t = 0; t * interval <= m_image.cols; ++t) {
+        const double ix = t * interval;
         const double vx = tl.x() + ix * s;
         if (vx < -1 || vx > width() + 1)
             continue;
@@ -228,7 +417,8 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
         p.drawText(QRectF(vx + 3, 0, 40, kTopRulerHeight - 4),
                    Qt::AlignLeft | Qt::AlignVCenter, QString::number(int(ix)));
     }
-    for (double iy = 0; iy <= m_image.height(); iy += interval) {
+    for (int t = 0; t * interval <= m_image.rows; ++t) {
+        const double iy = t * interval;
         const double vy = tl.y() + iy * s;
         if (vy < -1 || vy > height() + 1)
             continue;
@@ -286,8 +476,8 @@ void ImageViewerWidget::wheelEvent(QWheelEvent *event)
     const QPointF imagePos((mouse.x() - tl.x()) / oldScale,
                            (mouse.y() - tl.y()) / oldScale);
     const QRectF canvas = canvasRect();
-    const QPointF center(canvas.left() + (canvas.width() - m_image.width() * newScale) / 2.0,
-                         canvas.top() + (canvas.height() - m_image.height() * newScale) / 2.0);
+    const QPointF center(canvas.left() + (canvas.width() - m_image.cols * newScale) / 2.0,
+                         canvas.top() + (canvas.height() - m_image.rows * newScale) / 2.0);
     m_pan = mouse - center - imagePos * newScale;
     clampPan();
     updateMousePosition(mouse);

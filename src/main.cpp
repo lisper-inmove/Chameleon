@@ -7,7 +7,7 @@
 #include "config/config_manager.h"
 #include "ui/main_window.h"
 
-int main(int argc, char *argv[])
+int main(int argc, char *argv[])  // NOLINT(bugprone-exception-escape) - Qt main, event loop exceptions handled by the runtime
 {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName("Chameleon");

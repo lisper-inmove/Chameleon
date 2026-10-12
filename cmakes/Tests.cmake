@@ -18,6 +18,7 @@ add_executable(chameleon_tests
     tests/config_manager_test.cc
     tests/file_utils_test.cc
     tests/app_state_test.cc
+    tests/filter_processor_test.cc
     tests/image_viewer_test.cc
     tests/main_window_test.cc
 )
@@ -32,8 +33,10 @@ target_link_libraries(chameleon_tests PRIVATE
     Qt6::Test
 )
 
+# Tests inherit the environment from the test preset (ctest --preset),
+# which provides Qt and OpenCV DLLs on PATH for both discovery and runs.
+# A per-test ENVIRONMENT here would be merged with the preset environment
+# and ctest splits PATH at the semicolons during that merge.
 gtest_discover_tests(chameleon_tests
     DISCOVERY_MODE PRE_TEST
-    PROPERTIES
-        ENVIRONMENT "PATH=${CHAMELEON_QT_ROOT}/bin;${CHAMELEON_THIRD_PARTY_DIR}/opencv/x64/vc18/bin"
 )

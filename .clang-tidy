@@ -1,0 +1,16 @@
+# clang-tidy checks for Chameleon.
+# Runs inside clangd diagnostics and standalone via `clang-tidy -p <build-dir>`.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-use-override,
+  modernize-use-nullptr,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  misc-unused-parameters,
+  readability-container-size-empty
+
+HeaderFilterRegex: '^(include|src)/.*'
+
+FormatStyle: none
