@@ -23,11 +23,13 @@ cv::Mat FilterProcessor::apply(
     }
 
     // Brightness/contrast: out = alpha * in + beta
+    // 先改变亮度和对比度
     const double scale = 1.0 + contrast / 100.0;
     const double offset = brightness * 255.0 / 100.0;
     color.convertTo(color, -1, scale, offset);
 
     // Saturation via HSV; factor 0 desaturates to grayscale
+    // 再转成HSV色彩空间改变饱合度
     if (saturation != 0.0 && color.channels() == 3) {
         const double factor = 1.0 + saturation / 100.0;
         cv::Mat hsv;
