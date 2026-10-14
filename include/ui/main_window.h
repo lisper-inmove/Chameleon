@@ -33,6 +33,8 @@ private:
     void saveImageAs();
     void saveSelectionAs();
     void showHistograms();
+    void compareHistograms();
+    void matchHistograms();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

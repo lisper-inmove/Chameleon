@@ -12,6 +12,7 @@
 
 #include "app/app_state.h"
 #include "processing/filter_processor.h"
+#include "processing/histogram.h"
 #include "processing/image_io.h"
 #include "ui/image_conversion.h"
 
@@ -202,13 +203,20 @@ void ImageViewerWidget::clearSelection()
     update();
 }
 
-cv::Mat ImageViewerWidget::selectionImage() const
+cv::Rect ImageViewerWidget::selectionRect() const
 {
     if (m_image.empty() || m_selection.isEmpty())
         return {};
     const QRect clamped = m_selection & QRect(0, 0, m_image.cols, m_image.rows);
-    return m_image(cv::Rect(clamped.x(), clamped.y(),
-                            clamped.width(), clamped.height())).clone();
+    return cv::Rect(clamped.x(), clamped.y(), clamped.width(), clamped.height());
+}
+
+cv::Mat ImageViewerWidget::selectionImage() const
+{
+    const cv::Rect rect = selectionRect();
+    if (rect.width <= 0 || rect.height <= 0)
+        return {};
+    return m_image(rect).clone();
 }
 
 QPointF ImageViewerWidget::viewToImage(const QPointF &viewPos) const
@@ -276,6 +284,69 @@ void ImageViewerWidget::applyFilter()
         m_undoStack.removeFirst();
     m_redoStack.clear();
     m_original = m_image;
+    m_params = {};
+    m_pendingParams = {};
+    m_filterDebounce.stop();
+    m_image = m_original;
+    updateDisplayPixmap();
+    update();
+    emit filterPreviewChanged();
+    emit filterParamsReset();
+    emit canUndoChanged(true);
+    emit canRedoChanged(false);
+}
+
+void ImageViewerWidget::equalizeHistogram()
+{
+    applyOperation([](const cv::Mat &image) {
+        return chameleon::equalizeHistogram(image);
+    });
+}
+
+void ImageViewerWidget::equalizeClahe()
+{
+    applyOperation([](const cv::Mat &image) {
+        return chameleon::equalizeClahe(image);
+    });
+}
+
+void ImageViewerWidget::matchHistogram(const cv::Mat &templateImage)
+{
+    // cv::Mat is refcounted; the copy is cheap and keeps the template
+    // alive for the (synchronous) operation
+    applyOperation([templateImage](const cv::Mat &image) {
+        return chameleon::matchHistogram(image, templateImage);
+    });
+}
+
+void ImageViewerWidget::applyOperation(
+    const std::function<cv::Mat(const cv::Mat &)> &transform)
+{
+    if (m_status != Ready || m_image.empty())
+        return;
+
+    cv::Mat result;
+    try {
+        const cv::Rect rect = selectionRect();
+        if (rect.width > 0 && rect.height > 0) {
+            // Replace only the selected region
+            result = m_image.clone();
+            transform(m_image(rect)).copyTo(result(rect));
+        } else {
+            result = transform(m_image);
+        }
+    } catch (const cv::Exception &) {
+        return;  // unsupported input; leave the image untouched
+    }
+    if (result.empty() || result.size() != m_image.size()
+            || result.type() != m_image.type())
+        return;
+
+    m_undoStack.push(m_original.clone());
+    while (m_undoStack.size() > 10)
+        m_undoStack.removeFirst();
+    m_redoStack.clear();
+    m_original = std::move(result);
     m_params = {};
     m_pendingParams = {};
     m_filterDebounce.stop();

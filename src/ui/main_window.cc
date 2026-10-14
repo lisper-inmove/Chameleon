@@ -29,6 +29,8 @@
 #include "processing/histogram.h"
 #include "processing/image_io.h"
 #include "ui/filter_panel.h"
+#include "ui/histogram_compare_dialog.h"
+#include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
 #include "ui/image_conversion.h"
 #include "ui/image_viewer_widget.h"
@@ -307,6 +309,27 @@ void MainWindow::setupToolBar()
     toolBar->addAction(m_undoAction);
     toolBar->addAction(m_redoAction);
 
+    // Histogram tools live in one toolbar entry: display and equalization
+    auto *histogramButton = new QToolButton(toolBar);
+    histogramButton->setText(QStringLiteral("直方图"));
+    histogramButton->setObjectName("histogramButton");
+    histogramButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    histogramButton->setPopupMode(QToolButton::InstantPopup);
+    auto *histogramMenu = new QMenu(histogramButton);
+    histogramMenu->setObjectName("histogramMenu");
+    histogramMenu->addAction(QStringLiteral("灰度直方图"), this, &MainWindow::showHistograms);
+    histogramMenu->addAction(QStringLiteral("直方图均衡化"), this,
+                             [this] { m_viewer->equalizeHistogram(); });
+    histogramMenu->addAction(QStringLiteral("CLAHE 均衡化"), this,
+                             [this] { m_viewer->equalizeClahe(); });
+    histogramMenu->addSeparator();
+    histogramMenu->addAction(QStringLiteral("直方图比较..."), this,
+                             &MainWindow::compareHistograms);
+    histogramMenu->addAction(QStringLiteral("直方图匹配..."), this,
+                             &MainWindow::matchHistograms);
+    histogramButton->setMenu(histogramMenu);
+    toolBar->addWidget(histogramButton);
+
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(spacer);
@@ -412,9 +435,6 @@ QMenu *MainWindow::createViewerContextMenu()
     auto *saveSelectionAction = menu->addAction(QStringLiteral("保存选区为 PNG..."),
                                                 this, &MainWindow::saveSelectionAs);
     saveSelectionAction->setEnabled(m_viewer->hasSelection());
-
-    menu->addSeparator();
-    menu->addAction(QStringLiteral("灰度直方图"), this, &MainWindow::showHistograms);
     return menu;
 }
 
@@ -483,6 +503,40 @@ void MainWindow::showHistograms()
         window->move(pos().x() + 60 + c * 40, pos().y() + 80 + c * 40);
         window->show();
     }
+}
+
+void MainWindow::compareHistograms()
+{
+    // Reference: the selection when one exists, else the whole displayed
+    // image; targets: all opened images
+    const bool useSelection = m_viewer->hasSelection();
+    const cv::Mat reference = useSelection ? m_viewer->selectionImage()
+                                           : m_viewer->currentImage();
+    if (reference.empty())
+        return;
+    auto *dialog = new HistogramCompareDialog(
+        reference,
+        useSelection ? QStringLiteral("当前选区") : QStringLiteral("当前显示图"),
+        AppState::instance()->images(), this);
+    dialog->show();
+}
+
+void MainWindow::matchHistograms()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    auto *dialog = new HistogramMatchDialog(AppState::instance()->images(), this);
+    connect(dialog, &HistogramMatchDialog::applyRequested, this, [this, dialog] {
+        const cv::Mat templateImage = dialog->currentTemplateImage();
+        if (templateImage.empty()) {
+            statusBar()->showMessage(QStringLiteral("无法加载模板图片"), 2500);
+            return;
+        }
+        m_viewer->matchHistogram(templateImage);
+        statusBar()->showMessage(
+            QStringLiteral("已应用直方图匹配:%1").arg(dialog->currentTemplateName()), 2500);
+    });
+    dialog->show();
 }
 
 void MainWindow::reloadCurrentImage()

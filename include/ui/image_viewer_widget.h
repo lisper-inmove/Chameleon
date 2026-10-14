@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <QFutureWatcher>
 #include <QPointF>
 #include <QPixmap>
@@ -56,6 +58,13 @@ public:
     void redo();
     bool hasActiveFilters() const;
 
+    // One-shot histogram equalization (global / CLAHE) of the displayed
+    // image, or of the selection when one exists; undoable
+    void equalizeHistogram();
+    void equalizeClahe();
+    // Histogram matching to the given template image; undoable
+    void matchHistogram(const cv::Mat &templateImage);
+
 signals:
     void selectionChanged();
     // Emitted on a right-click without drag; the receiver shows the menu
@@ -106,6 +115,10 @@ private:
 
     void resetFilterState();
     void startFilterPreview();
+    cv::Rect selectionRect() const;
+    // Applies a one-shot transform (whole image or selection only) and
+    // pushes the previous state onto the undo stack
+    void applyOperation(const std::function<cv::Mat(const cv::Mat &)> &transform);
 
     QString m_path;
     cv::Mat m_image;      // displayed image (original + active filter params)

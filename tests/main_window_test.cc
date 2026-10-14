@@ -15,16 +15,23 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSlider>
+#include <QComboBox>
+#include <QPushButton>
 #include <QStatusBar>
+#include <QToolButton>
 #include <QtTest/QTest>
 
 #include "app/app_state.h"
 #include "processing/image_io.h"
+#include "ui/histogram_compare_dialog.h"
+#include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
 #include "ui/image_viewer_widget.h"
 #include "ui/main_window.h"
 
 using chameleon::AppState;
+using chameleon::HistogramCompareDialog;
+using chameleon::HistogramMatchDialog;
 using chameleon::HistogramWindow;
 using chameleon::ImageViewerWidget;
 using chameleon::MainWindow;
@@ -269,6 +276,10 @@ TEST_F(MainWindowTest, ViewerContextMenuActions)
     EXPECT_TRUE(texts.contains("全选"));
     EXPECT_TRUE(texts.contains("清除选区"));
     EXPECT_TRUE(texts.contains("保存选区为 PNG..."));
+    // Histogram features live in the toolbar, not in the context menu
+    EXPECT_FALSE(texts.contains("灰度直方图"));
+    EXPECT_FALSE(texts.contains("直方图均衡化"));
+    EXPECT_FALSE(texts.contains("CLAHE 均衡化"));
 
     // 全选 selects the whole image through the menu action
     for (auto *action : menu->actions()) {
@@ -288,11 +299,13 @@ TEST_F(MainWindowTest, HistogramWindowsOpenPerChannel)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    // Trigger 灰度直方图 from the context menu
+    // Trigger 灰度直方图 from the toolbar's histogram menu
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    EXPECT_NE(s_window->findChild<QToolButton *>("histogramButton"), nullptr);
     {
-        QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
         bool triggered = false;
-        for (auto *action : menu->actions()) {
+        for (auto *action : histogramMenu->actions()) {
             if (action->text() == "灰度直方图") {
                 action->trigger();
                 triggered = true;
@@ -341,12 +354,9 @@ TEST_F(MainWindowTest, HistogramWindowsOpenPerChannel)
     QTest::mouseRelease(viewer, Qt::RightButton, Qt::NoModifier, end);
     ASSERT_TRUE(viewer->hasSelection());
 
-    {
-        QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
-        for (auto *action : menu->actions()) {
-            if (action->text() == "灰度直方图")
-                action->trigger();
-        }
+    for (auto *action : histogramMenu->actions()) {
+        if (action->text() == "灰度直方图")
+            action->trigger();
     }
     QCoreApplication::processEvents();
 
@@ -365,6 +375,161 @@ TEST_F(MainWindowTest, HistogramWindowsOpenPerChannel)
     QCoreApplication::processEvents();
 }
 
+TEST_F(MainWindowTest, EqualizationMenuActionsWork)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    bool foundHistogram = false;
+    bool foundClahe = false;
+    for (auto *action : histogramMenu->actions()) {
+        if (action->text() == "直方图均衡化")
+            foundHistogram = true;
+        else if (action->text() == "CLAHE 均衡化")
+            foundClahe = true;
+    }
+    EXPECT_TRUE(foundHistogram);
+    EXPECT_TRUE(foundClahe);
+
+    const QImage before = viewer->grab().toImage();
+    for (auto *action : histogramMenu->actions()) {
+        if (action->text() == "直方图均衡化")
+            action->trigger();
+    }
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+}
+
+TEST_F(MainWindowTest, HistogramCompareDialogComputesScores)
+{
+    // Two inputs: the reference (current image / selection) and a target
+    // chosen from the opened images or browsed from disk
+    const QString identical = QDir::tempPath() + "/chameleon_compare_same.png";
+    const QString different = QDir::tempPath() + "/chameleon_compare_diff.png";
+    QFile::remove(identical);
+    QFile::remove(different);
+    const cv::Mat color(16, 16, CV_8UC3, cv::Scalar(10, 20, 30));
+    const cv::Mat other(16, 16, CV_8UC3, cv::Scalar(200, 210, 220));
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(identical.toStdString(), color));
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(different.toStdString(), other));
+
+    HistogramCompareDialog dialog(color, QStringLiteral("当前显示图"),
+                                  {identical, different});
+    auto *methodCombo = dialog.findChild<QComboBox *>("compareMethodCombo");
+    auto *targetCombo = dialog.findChild<QComboBox *>("compareTargetCombo");
+    auto *results = dialog.findChild<QLabel *>("compareResultsLabel");
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(targetCombo, nullptr);
+    ASSERT_NE(results, nullptr);
+    EXPECT_GE(methodCombo->count(), 5);
+    EXPECT_EQ(targetCombo->count(), 2);
+    EXPECT_NE(dialog.findChild<QPushButton *>("compareBrowseButton"), nullptr);
+
+    // Identical images -> normalized similarity 1.0 for every channel
+    EXPECT_TRUE(results->text().contains(QStringLiteral("相似度")));
+    EXPECT_TRUE(results->text().contains(QStringLiteral("1.0000")));
+    EXPECT_TRUE(results->text().contains(QStringLiteral("平均")));
+
+    // A disjoint target drops the similarity below 1
+    targetCombo->setCurrentIndex(1);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(results->text().contains(QStringLiteral("1.0000")));
+
+    // Switching the method recomputes on the same target
+    const QString beforeMethodSwitch = results->text();
+    methodCombo->setCurrentIndex(1);  // 卡方
+    QCoreApplication::processEvents();
+    EXPECT_NE(results->text(), beforeMethodSwitch);
+    EXPECT_TRUE(results->text().contains(QStringLiteral("相似度")));
+
+    // Browsing adds a new target input and selects it
+    const QString browsed = QDir::tempPath() + "/chameleon_compare_browse.png";
+    QFile::remove(browsed);
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(browsed.toStdString(), color));
+    dialog.addTargetPath(browsed);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(targetCombo->count(), 3);
+    EXPECT_EQ(targetCombo->currentIndex(), 2);
+    EXPECT_TRUE(results->text().contains(QStringLiteral("1.0000")));
+
+    QFile::remove(identical);
+    QFile::remove(different);
+    QFile::remove(browsed);
+}
+
+TEST_F(MainWindowTest, HistogramCompareMenuActionOpensDialog)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    bool found = false;
+    for (auto *action : histogramMenu->actions()) {
+        if (action->text() == "直方图比较...") {
+            action->trigger();
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<HistogramCompareDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, HistogramMatchDialogAppliesToViewer)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    bool found = false;
+    for (auto *action : histogramMenu->actions()) {
+        if (action->text() == "直方图匹配...") {
+            action->trigger();
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<HistogramMatchDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    EXPECT_NE(dialog->findChild<QComboBox *>("matchTargetCombo"), nullptr);
+    EXPECT_NE(dialog->findChild<QPushButton *>("matchBrowseButton"), nullptr);
+    auto *applyButton = dialog->findChild<QPushButton *>("matchApplyButton");
+    ASSERT_NE(applyButton, nullptr);
+
+    // Choose a template from disk and apply it
+    const QString templ = QDir::tempPath() + "/chameleon_match_template.png";
+    QFile::remove(templ);
+    const cv::Mat templateImage(16, 16, CV_8UC3, cv::Scalar(200, 200, 200));
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(templ.toStdString(), templateImage));
+    dialog->addTargetPath(templ);
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+    QFile::remove(templ);
+}
+
 TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)
 {
     // A single-channel source gets exactly one window
@@ -378,8 +543,9 @@ TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
-    for (auto *action : menu->actions()) {
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    for (auto *action : histogramMenu->actions()) {
         if (action->text() == "灰度直方图")
             action->trigger();
     }

@@ -523,6 +523,78 @@ TEST_F(ImageViewerTest, SelectionOutlineIsRendered)
     EXPECT_GT(amber, 100);
 }
 
+TEST_F(ImageViewerTest, EqualizeHistogramChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    m_viewer->equalizeHistogram();
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
+TEST_F(ImageViewerTest, EqualizeHistogramAppliesToSelectionOnly)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    // Select the 20x20 top-left corner, then equalize
+    const QPoint start = m_viewer->mapImageToView(QPointF(0, 0)).toPoint();
+    const QPoint end = m_viewer->mapImageToView(QPointF(20, 20)).toPoint();
+    QTest::mousePress(m_viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(m_viewer, end);
+    QTest::mouseRelease(m_viewer, Qt::RightButton, Qt::NoModifier, end);
+    ASSERT_TRUE(m_viewer->hasSelection());
+
+    m_viewer->equalizeHistogram();
+    const QImage after = m_viewer->grab().toImage();
+    EXPECT_NE(after, before);
+
+    // Inside the selection the pixels changed; image point (10,10) is
+    // away from the 2px amber outline
+    const QPoint inside = m_viewer->mapImageToView(QPointF(10, 10)).toPoint();
+    EXPECT_NE(after.pixelColor(inside), before.pixelColor(inside));
+    // Outside the selection nothing changed
+    const QPoint outside = m_viewer->mapImageToView(QPointF(300, 300)).toPoint();
+    EXPECT_EQ(after.pixelColor(outside), before.pixelColor(outside));
+}
+
+TEST_F(ImageViewerTest, EqualizeClaheChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    m_viewer->equalizeClahe();
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
+TEST_F(ImageViewerTest, MatchHistogramChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    // A solid bright template remaps the luminance drastically
+    const cv::Mat templateImage(32, 32, CV_8UC3, cv::Scalar(200, 200, 200));
+    m_viewer->matchHistogram(templateImage);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
