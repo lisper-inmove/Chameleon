@@ -247,6 +247,37 @@ TEST_F(MainWindowTest, ThumbnailsRenderViaOpenCv)
     QFile::remove(chinese);
 }
 
+TEST_F(MainWindowTest, ViewerContextMenuActions)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
+    ASSERT_NE(menu.data(), nullptr);
+    QStringList texts;
+    for (auto *action : menu->actions()) {
+        if (!action->isSeparator())
+            texts << action->text();
+    }
+    EXPECT_TRUE(texts.contains("适应窗口"));
+    EXPECT_TRUE(texts.contains("实际大小"));
+    EXPECT_TRUE(texts.contains("全选"));
+    EXPECT_TRUE(texts.contains("清除选区"));
+    EXPECT_TRUE(texts.contains("保存选区为 PNG..."));
+
+    // 全选 selects the whole image through the menu action
+    for (auto *action : menu->actions()) {
+        if (action->text() == "全选") {
+            action->trigger();
+            break;
+        }
+    }
+    EXPECT_TRUE(viewer->hasSelection());
+    EXPECT_EQ(viewer->selection(), QRect(0, 0, 640, 400));
+}
+
 TEST_F(MainWindowTest, DarkThemeChangesPalette)
 {
     AppState::instance()->setTheme("dark");

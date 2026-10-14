@@ -19,6 +19,11 @@ public:
 
     void applyTheme();
 
+    // Context menu for the image viewer (right-click); created without
+    // showing so it can be tested without a modal loop
+    QMenu *createViewerContextMenu();
+    void showViewerContextMenu(const QPoint &globalPos);
+
 private:
     void setupMenus();
     void setupToolBar();
@@ -26,6 +31,7 @@ private:
     void setupStatusBar();
     void openImages();
     void saveImageAs();
+    void saveSelectionAs();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

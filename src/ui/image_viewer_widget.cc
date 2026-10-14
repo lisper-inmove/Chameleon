@@ -1,6 +1,8 @@
 #include "ui/image_viewer_widget.h"
 
+#include <QApplication>
 #include <QFileInfo>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
@@ -46,6 +48,11 @@ ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
 {
     // Hover coordinate readout needs move events without a pressed button
     setMouseTracking(true);
+    // Right-click handling is fully manual (drag distinguishes ROI
+    // selection from the context menu), so no default context menu events
+    setContextMenuPolicy(Qt::NoContextMenu);
+    // Keyboard shortcuts (Esc clears the selection) arrive after a click
+    setFocusPolicy(Qt::ClickFocus);
 
     connect(AppState::instance(), &AppState::zoomChanged, this, [this] {
         // Returning to Fit resets panning
@@ -141,6 +148,12 @@ void ImageViewerWidget::setImage(const QString &path)
     m_pan = QPointF();
     m_dragging = false;
     m_mouseInsideImage = false;
+    m_roiCandidate = false;
+    m_roiDragging = false;
+    if (m_selection.isEmpty() == false) {
+        m_selection = QRect();
+        emit selectionChanged();
+    }
     if (path.isEmpty()) {
         m_pendingPath.clear();
         m_loadWatcher.setFuture(QFuture<cv::Mat>());  // cancel pending decode
@@ -169,6 +182,40 @@ bool ImageViewerWidget::saveAs(const QString &path) const
     if (m_status != Ready || m_image.empty())
         return false;
     return ImageIO::imwriteUtf8(path.toStdString(), m_image);
+}
+
+void ImageViewerWidget::selectAll()
+{
+    if (m_image.empty())
+        return;
+    m_selection = QRect(0, 0, m_image.cols, m_image.rows);
+    emit selectionChanged();
+    update();
+}
+
+void ImageViewerWidget::clearSelection()
+{
+    if (m_selection.isEmpty())
+        return;
+    m_selection = QRect();
+    emit selectionChanged();
+    update();
+}
+
+cv::Mat ImageViewerWidget::selectionImage() const
+{
+    if (m_image.empty() || m_selection.isEmpty())
+        return {};
+    const QRect clamped = m_selection & QRect(0, 0, m_image.cols, m_image.rows);
+    return m_image(cv::Rect(clamped.x(), clamped.y(),
+                            clamped.width(), clamped.height())).clone();
+}
+
+QPointF ImageViewerWidget::viewToImage(const QPointF &viewPos) const
+{
+    const double s = effectiveScale();
+    const QPointF tl = imageTopLeft();
+    return QPointF((viewPos.x() - tl.x()) / s, (viewPos.y() - tl.y()) / s);
 }
 
 void ImageViewerWidget::updateDisplayPixmap()
@@ -359,6 +406,16 @@ void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
     update();
 }
 
+void ImageViewerWidget::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape && hasSelection()) {
+        clearSelection();
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
 void ImageViewerWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -393,6 +450,16 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
     p.setClipRect(canvas);
     p.setRenderHint(QPainter::SmoothPixmapTransform, s < 2.0);
     p.drawPixmap(target, m_displayPixmap, QRectF(m_displayPixmap.rect()));
+
+    // ROI overlay: translucent fill + amber outline (image coordinates
+    // scale with zoom/pan automatically)
+    if (!m_selection.isEmpty()) {
+        const QRectF selView(tl.x() + m_selection.x() * s, tl.y() + m_selection.y() * s,
+                             m_selection.width() * s, m_selection.height() * s);
+        p.setPen(QPen(QColor(255, 200, 0), 2));
+        p.setBrush(QColor(255, 200, 0, 40));
+        p.drawRect(selView);
+    }
     p.restore();
 
     // Ruler strips: separator lines along the canvas border
@@ -487,15 +554,47 @@ void ImageViewerWidget::wheelEvent(QWheelEvent *event)
 
 void ImageViewerWidget::mousePressEvent(QMouseEvent *event)
 {
-    if (m_status == Ready && event->button() == Qt::LeftButton) {
+    if (m_status != Ready)
+        return;
+    if (event->button() == Qt::LeftButton) {
         m_dragging = true;
         m_lastDragPos = event->position();
+        event->accept();
+    } else if (event->button() == Qt::RightButton) {
+        // Candidate: becomes a ROI drag on movement, a context menu on
+        // release without movement
+        m_roiCandidate = true;
+        m_roiDragging = false;
+        m_roiPressView = event->position();
+        m_roiAnchorImage = viewToImage(event->position());
         event->accept();
     }
 }
 
 void ImageViewerWidget::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_roiCandidate) {
+        if (!m_roiDragging
+                && (event->position() - m_roiPressView).manhattanLength()
+                       >= QApplication::startDragDistance()) {
+            m_roiDragging = true;
+        }
+        if (m_roiDragging) {
+            const QPointF current = viewToImage(event->position());
+            const QRectF rect = QRectF(m_roiAnchorImage, current).normalized();
+            const int x1 = std::clamp(int(std::lround(rect.left())), 0, m_image.cols);
+            const int y1 = std::clamp(int(std::lround(rect.top())), 0, m_image.rows);
+            const int x2 = std::clamp(int(std::lround(rect.right())), 0, m_image.cols);
+            const int y2 = std::clamp(int(std::lround(rect.bottom())), 0, m_image.rows);
+            // Top-left + size construction: edges x2/y2 are exclusive
+            // (max valid pixel is cols-1/rows-1)
+            m_selection = QRect(x1, y1, x2 - x1, y2 - y1);
+            emit selectionChanged();
+            update();
+            event->accept();
+            return;
+        }
+    }
     if (m_dragging) {
         m_pan += event->position() - m_lastDragPos;
         m_lastDragPos = event->position();
@@ -510,6 +609,21 @@ void ImageViewerWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     if (m_dragging && event->button() == Qt::LeftButton) {
         m_dragging = false;
+        event->accept();
+    } else if (m_roiCandidate && event->button() == Qt::RightButton) {
+        m_roiCandidate = false;
+        if (m_roiDragging) {
+            m_roiDragging = false;
+            // A degenerate rubber band (a few pixels) is not a useful
+            // selection; treat it as an accidental move
+            if (m_selection.width() < 3 || m_selection.height() < 3) {
+                m_selection = QRect();
+            }
+            emit selectionChanged();
+            update();
+        } else {
+            emit contextMenuRequested(event->globalPosition().toPoint());
+        }
         event->accept();
     }
 }

@@ -171,6 +171,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             m_undoAction, &QAction::setEnabled);
     connect(m_viewer, &ImageViewerWidget::canRedoChanged,
             m_redoAction, &QAction::setEnabled);
+    connect(m_viewer, &ImageViewerWidget::contextMenuRequested,
+            this, &MainWindow::showViewerContextMenu);
 
     applyTheme();
     onCurrentImageChanged();
@@ -388,6 +390,52 @@ void MainWindow::openImages()
     if (files.isEmpty())
         return;
     AppState::instance()->openImages(files);
+}
+
+QMenu *MainWindow::createViewerContextMenu()
+{
+    auto *menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+
+    menu->addAction(m_fitAction);
+    menu->addAction(m_actualAction);
+    menu->addSeparator();
+
+    menu->addAction(QStringLiteral("全选"), m_viewer, &ImageViewerWidget::selectAll);
+    auto *clearAction = menu->addAction(QStringLiteral("清除选区"), m_viewer,
+                                        &ImageViewerWidget::clearSelection);
+    clearAction->setEnabled(m_viewer->hasSelection());
+
+    menu->addSeparator();
+    auto *saveSelectionAction = menu->addAction(QStringLiteral("保存选区为 PNG..."),
+                                                this, &MainWindow::saveSelectionAs);
+    saveSelectionAction->setEnabled(m_viewer->hasSelection());
+    return menu;
+}
+
+void MainWindow::showViewerContextMenu(const QPoint &globalPos)
+{
+    createViewerContextMenu()->popup(globalPos);
+}
+
+void MainWindow::saveSelectionAs()
+{
+    const cv::Mat selection = m_viewer->selectionImage();
+    if (selection.empty())
+        return;
+    const QString target = QFileDialog::getSaveFileName(
+        this, QStringLiteral("保存选区为 PNG"), QString(),
+        QStringLiteral("PNG 图片 (*.png)"), nullptr, QFileDialog::DontConfirmOverwrite);
+    if (target.isEmpty())
+        return;
+    QString path = target;
+    if (QFileInfo(path).suffix().isEmpty())
+        path += QLatin1String(".png");
+    if (ImageIO::imwriteUtf8(path.toStdString(), selection))
+        statusBar()->showMessage(
+            QStringLiteral("已保存选区:%1").arg(QFileInfo(path).fileName()), 2500);
+    else
+        statusBar()->showMessage(QStringLiteral("保存选区失败"), 2500);
 }
 
 void MainWindow::reloadCurrentImage()

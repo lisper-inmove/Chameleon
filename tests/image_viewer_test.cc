@@ -367,6 +367,162 @@ TEST_F(ImageViewerTest, LoadsImageWithChineseFilename)
     QFile::remove(chinese);
 }
 
+TEST_F(ImageViewerTest, RightClickWithoutDragRequestsContextMenu)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    QSignalSpy menuSpy(m_viewer, &ImageViewerWidget::contextMenuRequested);
+    QTest::mouseClick(m_viewer, Qt::RightButton, Qt::NoModifier, QPoint(300, 300));
+
+    EXPECT_EQ(menuSpy.count(), 1);
+    EXPECT_FALSE(m_viewer->hasSelection());
+}
+
+TEST_F(ImageViewerTest, RightDragSelectsRegionInImageCoordinates)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    AppState::instance()->setZoomMode(AppState::Actual);
+
+    QSignalSpy menuSpy(m_viewer, &ImageViewerWidget::contextMenuRequested);
+    QSignalSpy selSpy(m_viewer, &ImageViewerWidget::selectionChanged);
+
+    // Drag (in view space, mapped from image coords) from image (100,100)
+    // to image (300,200)
+    const QPoint start = m_viewer->mapImageToView(QPointF(100, 100)).toPoint();
+    const QPoint end = m_viewer->mapImageToView(QPointF(300, 200)).toPoint();
+    QTest::mousePress(m_viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(m_viewer, (start + end) / 2);
+    QTest::mouseMove(m_viewer, end);
+    QTest::mouseRelease(m_viewer, Qt::RightButton, Qt::NoModifier, end);
+
+    const QRect sel = m_viewer->selection();
+    EXPECT_NEAR(sel.x(), 100, 2);
+    EXPECT_NEAR(sel.y(), 100, 2);
+    EXPECT_NEAR(sel.width(), 200, 3);
+    EXPECT_NEAR(sel.height(), 100, 3);
+    EXPECT_GE(selSpy.count(), 1);
+    EXPECT_EQ(menuSpy.count(), 0);  // a drag must not open the menu
+}
+
+TEST_F(ImageViewerTest, RightDragClampsSelectionToImageBounds)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    AppState::instance()->setZoomMode(AppState::Actual);
+
+    const QPoint start = m_viewer->mapImageToView(QPointF(600, 380)).toPoint();
+    QTest::mousePress(m_viewer, Qt::RightButton, Qt::NoModifier, start);
+    // Drag far beyond the bottom-right image corner (640x400)
+    QTest::mouseMove(m_viewer, QPoint(799, 599));
+    QTest::mouseRelease(m_viewer, Qt::RightButton, Qt::NoModifier, QPoint(799, 599));
+
+    const QRect sel = m_viewer->selection();
+    EXPECT_NEAR(sel.x(), 600, 2);
+    EXPECT_NEAR(sel.y(), 380, 2);
+    EXPECT_EQ(sel.right(), 639);   // clamped to the image edge
+    EXPECT_EQ(sel.bottom(), 399);
+}
+
+TEST_F(ImageViewerTest, SelectAllAndClearSelection)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    QSignalSpy selSpy(m_viewer, &ImageViewerWidget::selectionChanged);
+
+    m_viewer->selectAll();
+    EXPECT_EQ(m_viewer->selection(), QRect(0, 0, 640, 400));
+    EXPECT_TRUE(m_viewer->hasSelection());
+    EXPECT_GE(selSpy.count(), 1);
+
+    m_viewer->clearSelection();
+    EXPECT_FALSE(m_viewer->hasSelection());
+    EXPECT_GE(selSpy.count(), 2);
+}
+
+TEST_F(ImageViewerTest, EscapeClearsSelection)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    // Real-world ESC delivery requires the viewer to take focus on click
+    EXPECT_TRUE(m_viewer->focusPolicy() & Qt::ClickFocus);
+
+    m_viewer->selectAll();
+    ASSERT_TRUE(m_viewer->hasSelection());
+
+    QSignalSpy selSpy(m_viewer, &ImageViewerWidget::selectionChanged);
+    QTest::keyClick(m_viewer, Qt::Key_Escape);
+
+    EXPECT_FALSE(m_viewer->hasSelection());
+    EXPECT_GE(selSpy.count(), 1);
+}
+
+TEST_F(ImageViewerTest, EscapeWithoutSelectionIsNoOp)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    QSignalSpy selSpy(m_viewer, &ImageViewerWidget::selectionChanged);
+    QTest::keyClick(m_viewer, Qt::Key_Escape);
+
+    EXPECT_FALSE(m_viewer->hasSelection());
+    EXPECT_EQ(selSpy.count(), 0);
+}
+
+TEST_F(ImageViewerTest, SelectionImageCropsCorrectRegion)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    AppState::instance()->setZoomMode(AppState::Actual);
+
+    // Drag-select the top-left 20x20 corner (pure background: BGR 200,120,30)
+    const QPoint start = m_viewer->mapImageToView(QPointF(0, 0)).toPoint();
+    const QPoint end = m_viewer->mapImageToView(QPointF(20, 20)).toPoint();
+    QTest::mousePress(m_viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(m_viewer, end);
+    QTest::mouseRelease(m_viewer, Qt::RightButton, Qt::NoModifier, end);
+
+    const cv::Mat crop = m_viewer->selectionImage();
+    ASSERT_FALSE(crop.empty());
+    EXPECT_NEAR(crop.cols, 20, 3);
+    EXPECT_NEAR(crop.rows, 20, 3);
+    const cv::Vec3b px = crop.at<cv::Vec3b>(0, 0);
+    EXPECT_NEAR(int(px[0]), 200, 4);  // B
+    EXPECT_NEAR(int(px[1]), 120, 4);  // G
+    EXPECT_NEAR(int(px[2]), 30, 4);   // R
+}
+
+TEST_F(ImageViewerTest, SelectionOutlineIsRendered)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    m_viewer->selectAll();
+    const QImage shot = m_viewer->grab().toImage();
+    // Amber outline (255,200,0); distinguishes from the orange ellipse
+    // (255,165,0) by the green channel
+    int amber = 0;
+    for (int y = 0; y < shot.height(); ++y) {
+        for (int x = 0; x < shot.width(); ++x) {
+            const QColor c = shot.pixelColor(x, y);
+            if (c.red() > 240 && c.green() > 185 && c.green() < 215 && c.blue() < 60)
+                ++amber;
+        }
+    }
+    EXPECT_GT(amber, 100);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});

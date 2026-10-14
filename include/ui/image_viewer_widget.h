@@ -3,6 +3,7 @@
 #include <QFutureWatcher>
 #include <QPointF>
 #include <QPixmap>
+#include <QRect>
 #include <QStack>
 #include <QThreadPool>
 #include <QTimer>
@@ -32,6 +33,14 @@ public:
     // Maps a point in image pixel coordinates to view coordinates
     QPointF mapImageToView(const QPointF &imagePos) const;
 
+    // Region of interest, in image pixel coordinates; empty when none
+    QRect selection() const { return m_selection; }
+    bool hasSelection() const { return !m_selection.isEmpty(); }
+    void selectAll();
+    void clearSelection();
+    // Crop of the displayed image at the selection; empty when none
+    cv::Mat selectionImage() const;
+
     // "" clears back to the empty state
     void setImage(const QString &path);
     bool saveAs(const QString &path) const;
@@ -46,12 +55,16 @@ public:
     bool hasActiveFilters() const;
 
 signals:
+    void selectionChanged();
+    // Emitted on a right-click without drag; the receiver shows the menu
+    void contextMenuRequested(const QPoint &globalPos);
     void filterPreviewChanged();
     void filterParamsReset();
     void canUndoChanged(bool canUndo);
     void canRedoChanged(bool canRedo);
 
 protected:
+    void keyPressEvent(QKeyEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -68,6 +81,7 @@ private:
     double niceTickInterval() const;
     void clampPan();
     void alignToOrigin();
+    QPointF viewToImage(const QPointF &viewPos) const;
     void updateMousePosition(const QPointF &viewPos);
     void updateDisplayPixmap();
     void updateImageInfo();
@@ -102,6 +116,14 @@ private:
     QPointF m_mouseImagePos;
     bool m_mouseInsideImage = false;
     bool m_dragging = false;
+    // Right-button interaction: press starts a candidate; movement beyond
+    // the drag threshold turns it into a ROI rubber band, a release
+    // without movement requests the context menu
+    bool m_roiCandidate = false;
+    bool m_roiDragging = false;
+    QPointF m_roiPressView;
+    QPointF m_roiAnchorImage;
+    QRect m_selection;  // image pixel coordinates
     QFutureWatcher<cv::Mat> m_loadWatcher;
     QString m_pendingPath;
     FilterParams m_params;
