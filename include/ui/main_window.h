@@ -35,6 +35,7 @@ private:
     void showHistograms();
     void compareHistograms();
     void matchHistograms();
+    void backProjectHistograms();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

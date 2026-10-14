@@ -24,14 +24,18 @@
 #include "app/app_state.h"
 #include "processing/image_io.h"
 #include "ui/histogram_compare_dialog.h"
+#include "ui/back_project_dialog.h"
 #include "ui/histogram_match_dialog.h"
+#include "ui/image_window.h"
 #include "ui/histogram_window.h"
 #include "ui/image_viewer_widget.h"
 #include "ui/main_window.h"
 
 using chameleon::AppState;
 using chameleon::HistogramCompareDialog;
+using chameleon::BackProjectDialog;
 using chameleon::HistogramMatchDialog;
+using chameleon::ImageWindow;
 using chameleon::HistogramWindow;
 using chameleon::ImageViewerWidget;
 using chameleon::MainWindow;
@@ -525,6 +529,51 @@ TEST_F(MainWindowTest, HistogramMatchDialogAppliesToViewer)
     EXPECT_NE(viewer->grab().toImage(), before);
     EXPECT_TRUE(action("undoAction")->isEnabled());
 
+    dialog->close();
+    QCoreApplication::processEvents();
+    QFile::remove(templ);
+}
+
+TEST_F(MainWindowTest, BackProjectMenuActionShowsResultWindow)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    bool found = false;
+    for (auto *action : histogramMenu->actions()) {
+        if (action->text() == "直方图反向投影...") {
+            action->trigger();
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<BackProjectDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    EXPECT_NE(dialog->findChild<QComboBox *>("backProjectTargetCombo"), nullptr);
+    EXPECT_NE(dialog->findChild<QPushButton *>("backProjectBrowseButton"), nullptr);
+    auto *computeButton = dialog->findChild<QPushButton *>("backProjectButton");
+    ASSERT_NE(computeButton, nullptr);
+
+    // Choose a white template and compute the back projection
+    const QString templ = QDir::tempPath() + "/chameleon_backproject_template.png";
+    QFile::remove(templ);
+    const cv::Mat templateImage(16, 16, CV_8UC3, cv::Scalar(255, 255, 255));
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(templ.toStdString(), templateImage));
+    dialog->addTargetPath(templ);
+
+    computeButton->click();
+    QCoreApplication::processEvents();
+    auto *resultWindow = s_window->findChild<ImageWindow *>("backProjectionWindow");
+    ASSERT_NE(resultWindow, nullptr);
+    EXPECT_EQ(resultWindow->imageSize(), QSize(640, 400));
+
+    resultWindow->close();
     dialog->close();
     QCoreApplication::processEvents();
     QFile::remove(templ);

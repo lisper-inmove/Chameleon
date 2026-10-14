@@ -29,10 +29,12 @@
 #include "processing/histogram.h"
 #include "processing/image_io.h"
 #include "ui/filter_panel.h"
+#include "ui/back_project_dialog.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
 #include "ui/image_conversion.h"
+#include "ui/image_window.h"
 #include "ui/image_viewer_widget.h"
 #include "utils/file_utils.h"
 
@@ -327,6 +329,8 @@ void MainWindow::setupToolBar()
                              &MainWindow::compareHistograms);
     histogramMenu->addAction(QStringLiteral("直方图匹配..."), this,
                              &MainWindow::matchHistograms);
+    histogramMenu->addAction(QStringLiteral("直方图反向投影..."), this,
+                             &MainWindow::backProjectHistograms);
     histogramButton->setMenu(histogramMenu);
     toolBar->addWidget(histogramButton);
 
@@ -535,6 +539,34 @@ void MainWindow::matchHistograms()
         m_viewer->matchHistogram(templateImage);
         statusBar()->showMessage(
             QStringLiteral("已应用直方图匹配:%1").arg(dialog->currentTemplateName()), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::backProjectHistograms()
+{
+    // Target: the selection when one exists, else the whole displayed
+    // image (state captured when the dialog opens)
+    const cv::Mat target = m_viewer->hasSelection() ? m_viewer->selectionImage()
+                                                    : m_viewer->currentImage();
+    if (target.empty())
+        return;
+    auto *dialog = new BackProjectDialog(AppState::instance()->images(), this);
+    connect(dialog, &BackProjectDialog::computeRequested, this, [this, dialog, target] {
+        const cv::Mat templateImage = dialog->currentTemplateImage();
+        if (templateImage.empty()) {
+            statusBar()->showMessage(QStringLiteral("无法加载模板图片"), 2500);
+            return;
+        }
+        const cv::Mat result = chameleon::backProjectHistogram(target, templateImage);
+        if (result.empty())
+            return;
+        auto *window = new ImageWindow(
+            QStringLiteral("反向投影结果:%1").arg(dialog->currentTemplateName()),
+            result, this);
+        window->setObjectName(QStringLiteral("backProjectionWindow"));
+        window->show();
+        statusBar()->showMessage(QStringLiteral("已生成反向投影结果"), 2500);
     });
     dialog->show();
 }

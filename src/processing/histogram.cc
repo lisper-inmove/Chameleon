@@ -232,6 +232,29 @@ cv::Mat matchHistogram(const cv::Mat &image, const cv::Mat &templateImage)
     return out;
 }
 
+cv::Mat backProjectHistogram(const cv::Mat &image, const cv::Mat &templateImage)
+{
+    if (image.empty() || templateImage.empty())
+        return {};
+
+    const cv::Mat target = luminanceOf(image);
+    const cv::Mat model = luminanceOf(templateImage);
+
+    // The template's histogram is the model passed to calcBackProject
+    // (4th parameter); NORM_MINMAX makes the projection displayable in 8U
+    const int histSize = 256;
+    float range[] = {0, 256};
+    const float *ranges[] = {range};
+    cv::Mat hist;
+    cv::calcHist(&model, 1, nullptr, cv::Mat(), hist, 1, &histSize, ranges, true);
+    cv::normalize(hist, hist, 0, 255, cv::NORM_MINMAX);
+
+    const int channels[] = {0};
+    cv::Mat backProjection;
+    cv::calcBackProject(&target, 1, channels, hist, backProjection, ranges, 1.0, true);
+    return backProjection;
+}
+
 double normalizedSimilarity(HistogramCompareMethod method, double score)
 {
     double similarity = 0.0;

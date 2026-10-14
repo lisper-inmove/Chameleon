@@ -57,4 +57,12 @@ double normalizedSimilarity(HistogramCompareMethod method, double score);
 // target) so the color balance is preserved; alpha is kept untouched.
 cv::Mat matchHistogram(const cv::Mat &image, const cv::Mat &templateImage);
 
+// Histogram back projection (cv::calcBackProject): the template's
+// normalized histogram is passed as the model (4th parameter) and every
+// pixel of the image is mapped to its probability of belonging to the
+// template's distribution. Gray input projects its gray channel; color
+// input projects the luminance (Y of YCrCb). Returns a CV_8U heat map of
+// the same size as the image (255 = strong match); empty on empty inputs.
+cv::Mat backProjectHistogram(const cv::Mat &image, const cv::Mat &templateImage);
+
 } // namespace chameleon

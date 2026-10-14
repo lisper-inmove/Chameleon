@@ -5,6 +5,7 @@
 #include "processing/histogram.h"
 
 using chameleon::compareHistograms;
+using chameleon::backProjectHistogram;
 using chameleon::matchHistogram;
 using chameleon::normalizedSimilarity;
 using chameleon::computeHistogram;
@@ -266,4 +267,38 @@ TEST(HistogramTest, MatchPreservesAlpha)
         for (int x = 0; x < out.cols; ++x)
             EXPECT_EQ(out.at<cv::Vec4b>(y, x)[3], 77);
     }
+}
+
+TEST(HistogramTest, BackProjectionHighlightsMatchingRegion)
+{
+    // Left half at 50, right half at 200; template is a solid 200 patch
+    cv::Mat target(16, 32, CV_8UC1);
+    target.colRange(0, 16).setTo(50);
+    target.colRange(16, 32).setTo(200);
+    const cv::Mat templateImage(8, 8, CV_8UC1, cv::Scalar(200));
+
+    const cv::Mat out = backProjectHistogram(target, templateImage);
+    ASSERT_EQ(out.type(), CV_8UC1);
+    EXPECT_EQ(out.size(), target.size());
+    EXPECT_EQ(out.at<uchar>(0, 8), 0);     // value 50: not in the template
+    EXPECT_EQ(out.at<uchar>(0, 24), 255);  // value 200: full match
+}
+
+TEST(HistogramTest, BackProjectionOnColorUsesLuminance)
+{
+    cv::Mat target(16, 16, CV_8UC3, cv::Scalar(0, 0, 0));     // black (Y=0)
+    target.colRange(8, 16).setTo(cv::Scalar(255, 255, 255));  // white (Y=255)
+    const cv::Mat templateImage(8, 8, CV_8UC3, cv::Scalar(255, 255, 255));
+
+    const cv::Mat out = backProjectHistogram(target, templateImage);
+    ASSERT_EQ(out.type(), CV_8UC1);
+    EXPECT_EQ(out.at<uchar>(0, 4), 0);
+    EXPECT_EQ(out.at<uchar>(0, 12), 255);
+}
+
+TEST(HistogramTest, BackProjectionEmptyInputsReturnEmpty)
+{
+    const cv::Mat gray(8, 8, CV_8UC1, cv::Scalar(100));
+    EXPECT_TRUE(backProjectHistogram(cv::Mat(), gray).empty());
+    EXPECT_TRUE(backProjectHistogram(gray, cv::Mat()).empty());
 }

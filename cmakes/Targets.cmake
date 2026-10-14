@@ -16,11 +16,13 @@ target_sources(chameleon_lib PRIVATE
     include/processing/filter_processor.h
     include/processing/histogram.h
     include/processing/image_io.h
+    include/ui/back_project_dialog.h
     include/ui/filter_panel.h
     include/ui/histogram_compare_dialog.h
     include/ui/histogram_match_dialog.h
     include/ui/histogram_window.h
     include/ui/image_conversion.h
+    include/ui/image_window.h
     include/ui/main_window.h
     include/ui/image_viewer_widget.h
     include/utils/file_utils.h
@@ -29,11 +31,13 @@ target_sources(chameleon_lib PRIVATE
     src/processing/filter_processor.cc
     src/processing/histogram.cc
     src/processing/image_io.cc
+    src/ui/back_project_dialog.cc
     src/ui/filter_panel.cc
     src/ui/histogram_compare_dialog.cc
     src/ui/histogram_match_dialog.cc
     src/ui/histogram_window.cc
     src/ui/image_conversion.cc
+    src/ui/image_window.cc
     src/ui/main_window.cc
     src/ui/image_viewer_widget.cc
     src/utils/file_utils.cc
