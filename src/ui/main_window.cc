@@ -26,8 +26,10 @@
 #include <opencv2/imgproc.hpp>
 
 #include "app/app_state.h"
+#include "processing/histogram.h"
 #include "processing/image_io.h"
 #include "ui/filter_panel.h"
+#include "ui/histogram_window.h"
 #include "ui/image_conversion.h"
 #include "ui/image_viewer_widget.h"
 #include "utils/file_utils.h"
@@ -410,6 +412,9 @@ QMenu *MainWindow::createViewerContextMenu()
     auto *saveSelectionAction = menu->addAction(QStringLiteral("保存选区为 PNG..."),
                                                 this, &MainWindow::saveSelectionAs);
     saveSelectionAction->setEnabled(m_viewer->hasSelection());
+
+    menu->addSeparator();
+    menu->addAction(QStringLiteral("灰度直方图"), this, &MainWindow::showHistograms);
     return menu;
 }
 
@@ -436,6 +441,48 @@ void MainWindow::saveSelectionAs()
             QStringLiteral("已保存选区:%1").arg(QFileInfo(path).fileName()), 2500);
     else
         statusBar()->showMessage(QStringLiteral("保存选区失败"), 2500);
+}
+
+void MainWindow::showHistograms()
+{
+    // Selection first: histograms of the region of interest; otherwise of
+    // the whole displayed image
+    const cv::Mat source = m_viewer->hasSelection() ? m_viewer->selectionImage()
+                                                    : m_viewer->currentImage();
+    if (source.empty())
+        return;
+
+    // One popup window per channel: each channel is a grayscale map and
+    // its histogram is the grayscale histogram of that channel
+    if (source.channels() == 1) {
+        auto *window = new HistogramWindow(QStringLiteral("灰度直方图"),
+                                           QColor(140, 140, 140),
+                                           computeHistogram(source, 0), this);
+        window->setObjectName(QStringLiteral("histogramWindow_gray"));
+        window->show();
+        return;
+    }
+
+    struct ChannelInfo {
+        const char *name;
+        const char *objectName;
+        QColor color;
+    };
+    const ChannelInfo channels[] = {
+        {QT_TR_NOOP("蓝色直方图"), "histogramWindow_blue", QColor(60, 120, 255)},
+        {QT_TR_NOOP("绿色直方图"), "histogramWindow_green", QColor(60, 190, 60)},
+        {QT_TR_NOOP("红色直方图"), "histogramWindow_red", QColor(255, 90, 90)},
+    };
+    const int count = std::min(3, source.channels());
+    for (int c = 0; c < count; ++c) {
+        auto *window = new HistogramWindow(QString::fromUtf8(channels[c].name),
+                                           channels[c].color,
+                                           computeHistogram(source, c), this);
+        window->setObjectName(QString::fromUtf8(channels[c].objectName));
+        // Cascade so the per-channel windows do not fully overlap
+        window->move(pos().x() + 60 + c * 40, pos().y() + 80 + c * 40);
+        window->show();
+    }
 }
 
 void MainWindow::reloadCurrentImage()

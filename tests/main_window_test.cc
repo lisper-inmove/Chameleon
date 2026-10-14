@@ -19,10 +19,13 @@
 #include <QtTest/QTest>
 
 #include "app/app_state.h"
+#include "processing/image_io.h"
+#include "ui/histogram_window.h"
 #include "ui/image_viewer_widget.h"
 #include "ui/main_window.h"
 
 using chameleon::AppState;
+using chameleon::HistogramWindow;
 using chameleon::ImageViewerWidget;
 using chameleon::MainWindow;
 
@@ -276,6 +279,121 @@ TEST_F(MainWindowTest, ViewerContextMenuActions)
     }
     EXPECT_TRUE(viewer->hasSelection());
     EXPECT_EQ(viewer->selection(), QRect(0, 0, 640, 400));
+}
+
+TEST_F(MainWindowTest, HistogramWindowsOpenPerChannel)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    // Trigger 灰度直方图 from the context menu
+    {
+        QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
+        bool triggered = false;
+        for (auto *action : menu->actions()) {
+            if (action->text() == "灰度直方图") {
+                action->trigger();
+                triggered = true;
+            }
+        }
+        EXPECT_TRUE(triggered);
+    }
+    QCoreApplication::processEvents();
+
+    // Color image: one popup window per channel (B, G, R)
+    auto *blue = s_window->findChild<HistogramWindow *>("histogramWindow_blue");
+    auto *green = s_window->findChild<HistogramWindow *>("histogramWindow_green");
+    auto *red = s_window->findChild<HistogramWindow *>("histogramWindow_red");
+    ASSERT_NE(blue, nullptr);
+    ASSERT_NE(green, nullptr);
+    ASSERT_NE(red, nullptr);
+    EXPECT_EQ(s_window->findChildren<HistogramWindow *>().size(), 3);
+    // The blue background (B=200) dominates the whole-image blue histogram
+    EXPECT_GT(blue->bins()[200], blue->bins()[0]);
+
+    // The window renders bars
+    blue->resize(340, 240);
+    blue->show();
+    QCoreApplication::processEvents();
+    const QImage shot = blue->grab().toImage();
+    int barPixels = 0;
+    for (int y = 0; y < shot.height(); ++y) {
+        for (int x = 0; x < shot.width(); ++x) {
+            const QColor c = shot.pixelColor(x, y);
+            if (c.blue() > 200 && c.red() < 140 && c.green() < 180)
+                ++barPixels;
+        }
+    }
+    EXPECT_GT(barPixels, 20);
+
+    // Replace the batch, then compute from a selection instead: the
+    // top-left 20x20 corner is pure background (B=200, G=120, R=30)
+    for (auto *w : s_window->findChildren<HistogramWindow *>())
+        w->close();
+    QCoreApplication::processEvents();
+
+    const QPoint start = viewer->mapImageToView(QPointF(0, 0)).toPoint();
+    const QPoint end = viewer->mapImageToView(QPointF(20, 20)).toPoint();
+    QTest::mousePress(viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(viewer, end);
+    QTest::mouseRelease(viewer, Qt::RightButton, Qt::NoModifier, end);
+    ASSERT_TRUE(viewer->hasSelection());
+
+    {
+        QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
+        for (auto *action : menu->actions()) {
+            if (action->text() == "灰度直方图")
+                action->trigger();
+        }
+    }
+    QCoreApplication::processEvents();
+
+    auto *selBlue = s_window->findChild<HistogramWindow *>("histogramWindow_blue");
+    auto *selGreen = s_window->findChild<HistogramWindow *>("histogramWindow_green");
+    auto *selRed = s_window->findChild<HistogramWindow *>("histogramWindow_red");
+    ASSERT_NE(selBlue, nullptr);
+    ASSERT_NE(selGreen, nullptr);
+    ASSERT_NE(selRed, nullptr);
+    EXPECT_DOUBLE_EQ(selBlue->bins()[200], 400);   // 20x20 uniform background
+    EXPECT_DOUBLE_EQ(selGreen->bins()[120], 400);
+    EXPECT_DOUBLE_EQ(selRed->bins()[30], 400);
+
+    for (auto *w : s_window->findChildren<HistogramWindow *>())
+        w->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)
+{
+    // A single-channel source gets exactly one window
+    const QString path = QDir::tempPath() + "/chameleon_gray_hist.png";
+    QFile::remove(path);
+    const cv::Mat gray(64, 64, CV_8UC1, cv::Scalar(100));
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(path.toStdString(), gray));
+
+    AppState::instance()->openImages({path});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    QScopedPointer<QMenu> menu(s_window->createViewerContextMenu());
+    for (auto *action : menu->actions()) {
+        if (action->text() == "灰度直方图")
+            action->trigger();
+    }
+    QCoreApplication::processEvents();
+
+    auto *grayWindow = s_window->findChild<HistogramWindow *>("histogramWindow_gray");
+    ASSERT_NE(grayWindow, nullptr);
+    EXPECT_EQ(s_window->findChildren<HistogramWindow *>().size(), 1);
+    EXPECT_DOUBLE_EQ(grayWindow->bins()[100], 64 * 64);
+
+    for (auto *w : s_window->findChildren<HistogramWindow *>())
+        w->close();
+    QCoreApplication::processEvents();
+    QFile::remove(path);
 }
 
 TEST_F(MainWindowTest, DarkThemeChangesPalette)

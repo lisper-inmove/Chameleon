@@ -32,6 +32,7 @@ private:
     void openImages();
     void saveImageAs();
     void saveSelectionAs();
+    void showHistograms();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

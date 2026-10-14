@@ -14,8 +14,10 @@ target_sources(chameleon_lib PRIVATE
     include/app/app_state.h
     include/config/config_manager.h
     include/processing/filter_processor.h
+    include/processing/histogram.h
     include/processing/image_io.h
     include/ui/filter_panel.h
+    include/ui/histogram_window.h
     include/ui/image_conversion.h
     include/ui/main_window.h
     include/ui/image_viewer_widget.h
@@ -23,8 +25,10 @@ target_sources(chameleon_lib PRIVATE
     src/app/app_state.cc
     src/config/config_manager.cc
     src/processing/filter_processor.cc
+    src/processing/histogram.cc
     src/processing/image_io.cc
     src/ui/filter_panel.cc
+    src/ui/histogram_window.cc
     src/ui/image_conversion.cc
     src/ui/main_window.cc
     src/ui/image_viewer_widget.cc

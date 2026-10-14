@@ -40,6 +40,8 @@ public:
     void clearSelection();
     // Crop of the displayed image at the selection; empty when none
     cv::Mat selectionImage() const;
+    // The displayed image (original + applied filters), as shown
+    cv::Mat currentImage() const { return m_image; }
 
     // "" clears back to the empty state
     void setImage(const QString &path);
