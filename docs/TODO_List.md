@@ -56,8 +56,11 @@
 - [ ] 灰度化、反色
 - [x] 模糊:均值 / 高斯 / 中值(卷积对话框,参数可调,支持选区,可撤销)
 - [ ] 双边滤波
+- [x] 方向模糊:水平 / 垂直 / 对角线(filter2D 方向核,核大小可调)
 - [ ] 锐化(unsharp mask)
-- [ ] 边缘检测:Canny / Sobel / Laplacian
+- [x] 梯度提取:Prewitt(filter2D)/ Sobel / Scharr,dx/dy/ksize/scale/delta 可调(梯度对话框)
+- [x] 边缘检测:Canny(threshold1/2、核大小、L2 梯度可调;边缘对话框,支持选区,可撤销)
+- [ ] 边缘检测:Laplacian
 - [x] 直方图显示(工具栏"直方图"菜单 → 灰度直方图,每通道独立弹出窗;支持选区)
 - [x] 直方图均衡化(equalizeHist + CLAHE 两种;工具栏"直方图"菜单,支持选区,可撤销)
 - [x] 直方图比较(compareHist,5 种方法可选;基准支持选区,逐通道归一化相似度)

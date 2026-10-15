@@ -27,10 +27,13 @@ public:
 
 // Convolution-family operations.
 enum class BlurType {
-    Box,       // cv::blur         (kernel size)
-    Gaussian,  // cv::GaussianBlur (kernel size, sigmaX, sigmaY)
-    Median,    // cv::medianBlur   (kernel size, clamped to 3..5)
-    Custom,    // cv::filter2D     (3x3 kernel, delta)
+    Box,            // cv::blur         (kernel size)
+    Gaussian,       // cv::GaussianBlur (kernel size, sigmaX, sigmaY)
+    Median,         // cv::medianBlur   (kernel size, clamped to 3..5)
+    Custom,         // cv::filter2D     (3x3 kernel, delta)
+    HorizontalBox,  // cv::filter2D     (kernel-size row filter, along x)
+    VerticalBox,    // cv::filter2D     (kernel-size column filter, along y)
+    DiagonalBox,    // cv::filter2D     (kernel-size diagonal filter, \)
 };
 
 struct BlurParams {
@@ -46,5 +49,40 @@ struct BlurParams {
 // Applies the selected convolution. All channels (including alpha) are
 // processed uniformly, matching the usual blur semantics.
 cv::Mat applyBlur(const cv::Mat &image, const BlurParams &params);
+
+// Gradient extraction.
+enum class GradientType {
+    Prewitt,  // hand-written 3x3 kernels applied with cv::filter2D
+    Sobel,    // cv::Sobel   (ksize selectable)
+    Scharr,   // cv::Scharr  (fixed 3x3; exactly one direction, first order)
+};
+
+struct GradientParams {
+    GradientType type = GradientType::Sobel;
+    int dx = 1;  // derivative order / direction flags (0..2)
+    int dy = 0;
+    int ksize = 3;    // Sobel kernel size, forced odd [1, 31]
+    double scale = 1.0;
+    double delta = 0.0;
+};
+
+// Computes the selected gradient. The signed response is converted to a
+// displayable CV_8U magnitude (abs + saturate) of the same size; alpha is
+// processed like any other channel. Prewitt uses dx/dy as direction
+// flags; Scharr normalizes to exactly one first-order direction.
+cv::Mat applyGradient(const cv::Mat &image, const GradientParams &params);
+
+// Canny edge detection parameters.
+struct CannyParams {
+    double threshold1 = 100.0;  // hysteresis thresholds (order-insensitive)
+    double threshold2 = 200.0;
+    int apertureSize = 3;       // Sobel aperture, odd [3, 7]
+    bool l2Gradient = false;    // use the L2 gradient norm
+};
+
+// Canny edge detection: color input is converted to luminance first, the
+// edge map is then replicated back to the input's channel layout (alpha
+// preserved), so the result keeps the input's type and size.
+cv::Mat applyCanny(const cv::Mat &image, const CannyParams &params);
 
 } // namespace chameleon

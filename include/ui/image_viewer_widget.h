@@ -68,6 +68,10 @@ public:
     void matchHistogram(const cv::Mat &templateImage);
     // One-shot convolution/blur; undoable
     void applyConvolution(const BlurParams &params);
+    // One-shot gradient extraction (Prewitt / Sobel / Scharr); undoable
+    void applyGradient(const GradientParams &params);
+    // One-shot Canny edge detection; undoable
+    void applyEdgeDetection(const CannyParams &params);
 
 signals:
     void selectionChanged();

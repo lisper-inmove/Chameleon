@@ -38,6 +38,9 @@ ConvolutionDialog::ConvolutionDialog(QWidget *parent) : QDialog(parent)
     m_typeCombo->addItem(QStringLiteral("高斯模糊"));
     m_typeCombo->addItem(QStringLiteral("中值模糊"));
     m_typeCombo->addItem(QStringLiteral("自定义卷积"));
+    m_typeCombo->addItem(QStringLiteral("水平模糊"));
+    m_typeCombo->addItem(QStringLiteral("垂直模糊"));
+    m_typeCombo->addItem(QStringLiteral("对角线模糊"));
     m_typeCombo->setCurrentIndex(1);  // Gaussian
 
     m_kernelSpin = new QSpinBox(this);
@@ -118,6 +121,21 @@ void ConvolutionDialog::updateParameterVisibility()
         m_deltaSpin->setEnabled(true);
         m_hint->setText(QStringLiteral("3×3 自定义卷积核(默认恒等);Delta 加到每个结果像素。"));
         break;
+    case 4:  // 水平模糊
+    case 5:  // 垂直模糊
+    case 6:  // 对角线模糊
+        m_kernelSpin->setEnabled(true);
+        m_sigmaXSpin->setEnabled(false);
+        m_sigmaYSpin->setEnabled(false);
+        m_kernelGrid->setEnabled(false);
+        m_deltaSpin->setEnabled(false);
+        if (m_typeCombo->currentIndex() == 4)
+            m_hint->setText(QStringLiteral("沿水平方向取平均(filter2D),核大小为模糊长度。"));
+        else if (m_typeCombo->currentIndex() == 5)
+            m_hint->setText(QStringLiteral("沿垂直方向取平均(filter2D),核大小为模糊长度。"));
+        else
+            m_hint->setText(QStringLiteral("沿主对角线(左上→右下)取平均(filter2D)。"));
+        break;
     case 1:  // 高斯
     default:
         m_kernelSpin->setEnabled(true);
@@ -142,6 +160,15 @@ BlurParams ConvolutionDialog::blurParams() const
         break;
     case 3:
         params.type = BlurType::Custom;
+        break;
+    case 4:
+        params.type = BlurType::HorizontalBox;
+        break;
+    case 5:
+        params.type = BlurType::VerticalBox;
+        break;
+    case 6:
+        params.type = BlurType::DiagonalBox;
         break;
     case 1:
     default:

@@ -37,6 +37,8 @@ private:
     void matchHistograms();
     void backProjectHistograms();
     void openConvolutionDialog();
+    void openGradientDialog();
+    void openEdgeDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

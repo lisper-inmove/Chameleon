@@ -5,6 +5,11 @@
 #include "processing/filter_processor.h"
 
 using chameleon::applyBlur;
+using chameleon::applyCanny;
+using chameleon::applyGradient;
+using chameleon::CannyParams;
+using chameleon::GradientParams;
+using chameleon::GradientType;
 using chameleon::BlurParams;
 using chameleon::BlurType;
 using chameleon::FilterProcessor;
@@ -171,4 +176,282 @@ TEST(FilterProcessorTest, BlurKeepsColorTypeAndSize)
     const cv::Mat out = applyBlur(bgra, params);
     EXPECT_EQ(out.type(), CV_8UC4);
     EXPECT_EQ(out.size(), bgra.size());
+}
+
+TEST(FilterProcessorTest, DirectionalBlursKeepUniformImageUnchanged)
+{
+    const cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    for (BlurType type : {BlurType::HorizontalBox, BlurType::VerticalBox,
+                          BlurType::DiagonalBox}) {
+        BlurParams params;
+        params.type = type;
+        params.kernelSize = 5;
+        const cv::Mat out = applyBlur(gray, params);
+        cv::Mat diff;
+        cv::absdiff(out, gray, diff);
+        EXPECT_EQ(cv::countNonZero(diff), 0);
+    }
+}
+
+TEST(FilterProcessorTest, HorizontalBlurSpreadsAlongTheRowOnly)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(16, 16) = 255;
+    BlurParams params;
+    params.type = BlurType::HorizontalBox;
+    params.kernelSize = 5;
+
+    const cv::Mat out = applyBlur(gray, params);
+    // Along the row: (255 + 4*100) / 5 = 131
+    EXPECT_EQ(out.at<uchar>(16, 16), 131);
+    EXPECT_EQ(out.at<uchar>(16, 17), 131);
+    // No vertical spread
+    EXPECT_EQ(out.at<uchar>(15, 16), 100);
+    EXPECT_EQ(out.at<uchar>(17, 16), 100);
+    // Outside the 5-wide window on the row
+    EXPECT_EQ(out.at<uchar>(16, 13), 100);
+}
+
+TEST(FilterProcessorTest, VerticalBlurSpreadsAlongTheColumnOnly)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(16, 16) = 255;
+    BlurParams params;
+    params.type = BlurType::VerticalBox;
+    params.kernelSize = 5;
+
+    const cv::Mat out = applyBlur(gray, params);
+    EXPECT_EQ(out.at<uchar>(15, 16), 131);
+    EXPECT_EQ(out.at<uchar>(17, 16), 131);
+    EXPECT_EQ(out.at<uchar>(16, 15), 100);  // no horizontal spread
+    EXPECT_EQ(out.at<uchar>(16, 17), 100);
+}
+
+TEST(FilterProcessorTest, DiagonalBlurSpreadsAlongTheDiagonalOnly)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(16, 16) = 255;
+    BlurParams params;
+    params.type = BlurType::DiagonalBox;
+    params.kernelSize = 5;
+
+    const cv::Mat out = applyBlur(gray, params);
+    EXPECT_EQ(out.at<uchar>(15, 15), 131);
+    EXPECT_EQ(out.at<uchar>(17, 17), 131);
+    EXPECT_EQ(out.at<uchar>(16, 17), 100);  // off-diagonal untouched
+    EXPECT_EQ(out.at<uchar>(17, 16), 100);
+}
+
+TEST(FilterProcessorTest, HorizontalBlurRespectsTheKernelSize)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(16, 16) = 255;
+    BlurParams params;
+    params.type = BlurType::HorizontalBox;
+    params.kernelSize = 3;
+
+    const cv::Mat out = applyBlur(gray, params);
+    // (255 + 2*100) / 3 = 151.7 -> rounded 152
+    EXPECT_EQ(out.at<uchar>(16, 15), 152);
+    EXPECT_EQ(out.at<uchar>(16, 14), 100);  // outside the 3-wide window
+}
+
+namespace {
+cv::Mat verticalEdgeImage()
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(0));
+    gray.colRange(16, 32).setTo(255);
+    return gray;
+}
+} // namespace
+
+TEST(FilterProcessorTest, PrewittDetectsVerticalEdges)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    GradientParams params;
+    params.type = GradientType::Prewitt;
+    params.dx = 1;
+    params.dy = 0;
+
+    const cv::Mat out = applyGradient(gray, params);
+    ASSERT_EQ(out.type(), CV_8UC1);
+    // The step edge produces a two-column response band (15 and 16);
+    // beyond it the tap window is uniform again
+    EXPECT_EQ(out.at<uchar>(8, 15), 255);
+    EXPECT_EQ(out.at<uchar>(8, 16), 255);
+    EXPECT_EQ(out.at<uchar>(8, 17), 0);
+    EXPECT_EQ(out.at<uchar>(8, 4), 0);
+}
+
+TEST(FilterProcessorTest, PrewittHorizontalKernelIgnoresVerticalEdges)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    GradientParams params;
+    params.type = GradientType::Prewitt;
+    params.dx = 0;
+    params.dy = 1;
+
+    const cv::Mat out = applyGradient(gray, params);
+    // Rows are constant, so the vertical kernel response is zero everywhere
+    EXPECT_EQ(cv::countNonZero(out), 0);
+}
+
+TEST(FilterProcessorTest, SobelDetectsVerticalEdges)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    GradientParams params;
+    params.type = GradientType::Sobel;
+    params.dx = 1;
+    params.dy = 0;
+    params.ksize = 3;
+
+    const cv::Mat out = applyGradient(gray, params);
+    EXPECT_EQ(out.at<uchar>(8, 15), 255);
+    EXPECT_EQ(out.at<uchar>(8, 16), 255);
+    EXPECT_EQ(out.at<uchar>(8, 17), 0);
+    EXPECT_EQ(out.at<uchar>(8, 4), 0);
+}
+
+TEST(FilterProcessorTest, SobelScaleAndDeltaAffectTheResult)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    GradientParams params;
+    params.type = GradientType::Sobel;
+    params.dx = 1;
+    params.dy = 0;
+    params.ksize = 1;  // raw response at the edge is exactly 255
+
+    params.scale = 0.5;
+    params.delta = 0;
+    EXPECT_EQ(applyGradient(gray, params).at<uchar>(8, 15), 128);  // 127.5
+
+    params.scale = 1.0;
+    params.delta = -200;
+    EXPECT_EQ(applyGradient(gray, params).at<uchar>(8, 15), 55);  // 255 - 200
+}
+
+TEST(FilterProcessorTest, ScharrDetectsVerticalEdges)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    GradientParams params;
+    params.type = GradientType::Scharr;
+    params.dx = 1;
+    params.dy = 0;
+
+    const cv::Mat out = applyGradient(gray, params);
+    // Scharr response 16 * 255 = 4080; scale 1/16 normalizes it exactly
+    params.scale = 1.0 / 16.0;
+    const cv::Mat scaled = applyGradient(gray, params);
+    EXPECT_EQ(out.at<uchar>(8, 15), 255);
+    EXPECT_EQ(out.at<uchar>(8, 16), 255);
+    EXPECT_EQ(out.at<uchar>(8, 17), 0);
+    EXPECT_EQ(scaled.at<uchar>(8, 15), 255);
+}
+
+TEST(FilterProcessorTest, ScharrForcesASingleDirection)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    GradientParams params;
+    params.type = GradientType::Scharr;
+    params.dx = 1;
+    params.dy = 1;  // invalid for Scharr: normalized to the x direction
+
+    const cv::Mat out = applyGradient(gray, params);
+    EXPECT_EQ(out.at<uchar>(8, 15), 255);  // still the vertical-edge response
+}
+
+TEST(FilterProcessorTest, GradientKeepsColorTypeAndSize)
+{
+    const cv::Mat bgr(16, 16, CV_8UC3, cv::Scalar(30, 120, 200));
+    for (GradientType type : {GradientType::Prewitt, GradientType::Sobel,
+                              GradientType::Scharr}) {
+        GradientParams params;
+        params.type = type;
+        params.dx = 1;
+        params.dy = 0;
+        const cv::Mat out = applyGradient(bgr, params);
+        EXPECT_EQ(out.type(), CV_8UC3);
+        EXPECT_EQ(out.size(), bgr.size());
+    }
+}
+
+TEST(FilterProcessorTest, CannyFindsStrongEdges)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    CannyParams params;
+    params.threshold1 = 50;
+    params.threshold2 = 150;
+    params.apertureSize = 3;
+
+    const cv::Mat out = applyCanny(gray, params);
+    ASSERT_EQ(out.type(), CV_8UC1);
+    EXPECT_EQ(out.size(), gray.size());
+    // The step edge is detected; the response is binary
+    EXPECT_GT(cv::countNonZero(out), 0);
+    for (int y = 0; y < out.rows; ++y) {
+        for (int x = 0; x < out.cols; ++x) {
+            const uchar v = out.at<uchar>(y, x);
+            EXPECT_TRUE(v == 0 || v == 255);
+        }
+    }
+    // Far from the edge nothing is detected
+    EXPECT_EQ(out.at<uchar>(8, 4), 0);
+    EXPECT_EQ(out.at<uchar>(28, 27), 0);
+}
+
+TEST(FilterProcessorTest, CannyThresholdsControlSensitivity)
+{
+    // Smooth ramp: the gradient magnitude stays around 32
+    cv::Mat ramp(16, 32, CV_8UC1);
+    for (int y = 0; y < ramp.rows; ++y) {
+        for (int x = 0; x < ramp.cols; ++x)
+            ramp.at<uchar>(y, x) = uchar(x * 8);
+    }
+
+    CannyParams params;
+    params.apertureSize = 3;
+    params.threshold1 = 200;  // above the ramp gradient
+    params.threshold2 = 400;
+    EXPECT_EQ(cv::countNonZero(applyCanny(ramp, params)), 0);
+
+    params.threshold1 = 10;
+    params.threshold2 = 20;
+    EXPECT_GT(cv::countNonZero(applyCanny(ramp, params)), 0);
+}
+
+TEST(FilterProcessorTest, CannyApertureAndL2GradientArePlumbed)
+{
+    const cv::Mat gray = verticalEdgeImage();
+    CannyParams params;
+    params.threshold1 = 50;
+    params.threshold2 = 150;
+    params.apertureSize = 5;
+    params.l2Gradient = true;
+
+    const cv::Mat out = applyCanny(gray, params);
+    EXPECT_EQ(out.type(), CV_8UC1);
+    EXPECT_GT(cv::countNonZero(out), 0);
+}
+
+TEST(FilterProcessorTest, CannyColorInputKeepsChannels)
+{
+    cv::Mat color(16, 32, CV_8UC3, cv::Scalar(0, 0, 0));
+    color.colRange(16, 32).setTo(cv::Scalar(255, 255, 255));
+    CannyParams params;
+    params.threshold1 = 50;
+    params.threshold2 = 150;
+
+    const cv::Mat out = applyCanny(color, params);
+    EXPECT_EQ(out.type(), CV_8UC3);
+    EXPECT_EQ(out.size(), color.size());
+    EXPECT_GT(cv::countNonZero(out.reshape(1)), 0);
+
+    cv::Mat bgra(16, 32, CV_8UC4, cv::Scalar(0, 0, 0, 77));
+    bgra.colRange(16, 32).setTo(cv::Scalar(255, 255, 255, 77));
+    const cv::Mat outAlpha = applyCanny(bgra, params);
+    ASSERT_EQ(outAlpha.type(), CV_8UC4);
+    for (int y = 0; y < outAlpha.rows; ++y) {
+        for (int x = 0; x < outAlpha.cols; ++x)
+            EXPECT_EQ(outAlpha.at<cv::Vec4b>(y, x)[3], 77);  // alpha preserved
+    }
 }

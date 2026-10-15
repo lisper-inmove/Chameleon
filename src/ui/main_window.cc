@@ -31,6 +31,8 @@
 #include "ui/filter_panel.h"
 #include "ui/back_project_dialog.h"
 #include "ui/convolution_dialog.h"
+#include "ui/edge_dialog.h"
+#include "ui/gradient_dialog.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
@@ -343,6 +345,22 @@ void MainWindow::setupToolBar()
             this, &MainWindow::openConvolutionDialog);
     toolBar->addWidget(convolutionButton);
 
+    auto *gradientButton = new QToolButton(toolBar);
+    gradientButton->setText(QStringLiteral("梯度..."));
+    gradientButton->setObjectName("gradientButton");
+    gradientButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(gradientButton, &QToolButton::clicked,
+            this, &MainWindow::openGradientDialog);
+    toolBar->addWidget(gradientButton);
+
+    auto *edgeButton = new QToolButton(toolBar);
+    edgeButton->setText(QStringLiteral("边缘..."));
+    edgeButton->setObjectName("edgeButton");
+    edgeButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(edgeButton, &QToolButton::clicked,
+            this, &MainWindow::openEdgeDialog);
+    toolBar->addWidget(edgeButton);
+
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(spacer);
@@ -589,6 +607,31 @@ void MainWindow::openConvolutionDialog()
         m_viewer->applyConvolution(dialog->blurParams());
         statusBar()->showMessage(
             QStringLiteral("已应用卷积:%1").arg(dialog->currentTypeName()), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::openGradientDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    auto *dialog = new GradientDialog(this);
+    connect(dialog, &GradientDialog::applyRequested, this, [this, dialog] {
+        m_viewer->applyGradient(dialog->gradientParams());
+        statusBar()->showMessage(
+            QStringLiteral("已应用梯度:%1").arg(dialog->currentTypeName()), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::openEdgeDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    auto *dialog = new EdgeDialog(this);
+    connect(dialog, &EdgeDialog::applyRequested, this, [this, dialog] {
+        m_viewer->applyEdgeDetection(dialog->cannyParams());
+        statusBar()->showMessage(QStringLiteral("已应用边缘检测(Canny)"), 2500);
     });
     dialog->show();
 }

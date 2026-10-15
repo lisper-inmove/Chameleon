@@ -18,7 +18,9 @@ target_sources(chameleon_lib PRIVATE
     include/processing/image_io.h
     include/ui/back_project_dialog.h
     include/ui/convolution_dialog.h
+    include/ui/edge_dialog.h
     include/ui/filter_panel.h
+    include/ui/gradient_dialog.h
     include/ui/histogram_compare_dialog.h
     include/ui/histogram_match_dialog.h
     include/ui/histogram_window.h
@@ -34,7 +36,9 @@ target_sources(chameleon_lib PRIVATE
     src/processing/image_io.cc
     src/ui/back_project_dialog.cc
     src/ui/convolution_dialog.cc
+    src/ui/edge_dialog.cc
     src/ui/filter_panel.cc
+    src/ui/gradient_dialog.cc
     src/ui/histogram_compare_dialog.cc
     src/ui/histogram_match_dialog.cc
     src/ui/histogram_window.cc

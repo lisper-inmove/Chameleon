@@ -326,6 +326,20 @@ void ImageViewerWidget::applyConvolution(const BlurParams &params)
     });
 }
 
+void ImageViewerWidget::applyGradient(const GradientParams &params)
+{
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::applyGradient(image, params);
+    });
+}
+
+void ImageViewerWidget::applyEdgeDetection(const CannyParams &params)
+{
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::applyCanny(image, params);
+    });
+}
+
 void ImageViewerWidget::applyOperation(
     const std::function<cv::Mat(const cv::Mat &)> &transform)
 {

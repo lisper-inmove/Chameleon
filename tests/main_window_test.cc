@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSlider>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
@@ -28,6 +29,8 @@
 #include "ui/histogram_compare_dialog.h"
 #include "ui/back_project_dialog.h"
 #include "ui/convolution_dialog.h"
+#include "ui/edge_dialog.h"
+#include "ui/gradient_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/image_window.h"
 #include "ui/histogram_window.h"
@@ -38,6 +41,8 @@ using chameleon::AppState;
 using chameleon::HistogramCompareDialog;
 using chameleon::BackProjectDialog;
 using chameleon::ConvolutionDialog;
+using chameleon::EdgeDialog;
+using chameleon::GradientDialog;
 using chameleon::HistogramMatchDialog;
 using chameleon::ImageWindow;
 using chameleon::HistogramWindow;
@@ -611,7 +616,7 @@ TEST_F(MainWindowTest, ConvolutionDialogExposesParamsAndApplies)
     ASSERT_NE(deltaSpin, nullptr);
     ASSERT_NE(cell, nullptr);
     ASSERT_NE(applyButton, nullptr);
-    EXPECT_EQ(typeCombo->count(), 4);
+    EXPECT_EQ(typeCombo->count(), 7);
 
     // Gaussian (default): sigma editable, custom kernel disabled
     EXPECT_TRUE(sigmaXSpin->isEnabled());
@@ -626,11 +631,118 @@ TEST_F(MainWindowTest, ConvolutionDialogExposesParamsAndApplies)
     EXPECT_FALSE(sigmaXSpin->isEnabled());
     EXPECT_FALSE(kernelSpin->isEnabled());
 
+    // Directional blur: kernel size editable, everything else disabled
+    typeCombo->setCurrentIndex(4);
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(kernelSpin->isEnabled());
+    EXPECT_FALSE(sigmaXSpin->isEnabled());
+    EXPECT_FALSE(cell->isEnabled());
+    EXPECT_FALSE(deltaSpin->isEnabled());
+
     // Median: apply and check the effect on the viewer
     typeCombo->setCurrentIndex(2);
     QCoreApplication::processEvents();
     EXPECT_TRUE(kernelSpin->isEnabled());
     kernelSpin->setValue(3);
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, GradientDialogExposesParamsAndApplies)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *gradientButton = s_window->findChild<QToolButton *>("gradientButton");
+    ASSERT_NE(gradientButton, nullptr);
+    gradientButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<GradientDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *typeCombo = dialog->findChild<QComboBox *>("gradientTypeCombo");
+    auto *dxSpin = dialog->findChild<QSpinBox *>("gradientDxSpin");
+    auto *dySpin = dialog->findChild<QSpinBox *>("gradientDySpin");
+    auto *ksizeSpin = dialog->findChild<QSpinBox *>("gradientKsizeSpin");
+    auto *scaleSpin = dialog->findChild<QDoubleSpinBox *>("gradientScaleSpin");
+    auto *deltaSpin = dialog->findChild<QDoubleSpinBox *>("gradientDeltaSpin");
+    auto *applyButton = dialog->findChild<QPushButton *>("gradientApplyButton");
+    ASSERT_NE(typeCombo, nullptr);
+    ASSERT_NE(dxSpin, nullptr);
+    ASSERT_NE(dySpin, nullptr);
+    ASSERT_NE(ksizeSpin, nullptr);
+    ASSERT_NE(scaleSpin, nullptr);
+    ASSERT_NE(deltaSpin, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    EXPECT_EQ(typeCombo->count(), 3);
+
+    // Sobel (default): the kernel size is editable
+    EXPECT_TRUE(ksizeSpin->isEnabled());
+
+    // Scharr: fixed 3x3 kernel, the rest stays editable
+    typeCombo->setCurrentIndex(2);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(ksizeSpin->isEnabled());
+    EXPECT_TRUE(dxSpin->isEnabled());
+    EXPECT_TRUE(dySpin->isEnabled());
+    EXPECT_TRUE(scaleSpin->isEnabled());
+    EXPECT_TRUE(deltaSpin->isEnabled());
+
+    // Back to Sobel and apply: the viewer image changes and is undoable
+    typeCombo->setCurrentIndex(1);
+    QCoreApplication::processEvents();
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, EdgeDialogExposesParamsAndApplies)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *edgeButton = s_window->findChild<QToolButton *>("edgeButton");
+    ASSERT_NE(edgeButton, nullptr);
+    edgeButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<EdgeDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *threshold1 = dialog->findChild<QSpinBox *>("edgeThreshold1Spin");
+    auto *threshold2 = dialog->findChild<QSpinBox *>("edgeThreshold2Spin");
+    auto *aperture = dialog->findChild<QSpinBox *>("edgeApertureSpin");
+    auto *l2Gradient = dialog->findChild<QCheckBox *>("edgeL2GradientCheck");
+    auto *applyButton = dialog->findChild<QPushButton *>("edgeApplyButton");
+    ASSERT_NE(threshold1, nullptr);
+    ASSERT_NE(threshold2, nullptr);
+    ASSERT_NE(aperture, nullptr);
+    ASSERT_NE(l2Gradient, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    EXPECT_EQ(aperture->minimum(), 3);
+    EXPECT_EQ(aperture->maximum(), 7);
+    EXPECT_FALSE(l2Gradient->isChecked());  // default L1
+
+    // Every parameter is settable from the dialog
+    threshold1->setValue(40);
+    threshold2->setValue(120);
+    aperture->setValue(5);
+    l2Gradient->setChecked(true);
 
     const QImage before = viewer->grab().toImage();
     applyButton->click();

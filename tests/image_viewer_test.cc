@@ -613,6 +613,42 @@ TEST_F(ImageViewerTest, ApplyConvolutionChangesImageAndUndoRestores)
     EXPECT_EQ(m_viewer->grab().toImage(), before);
 }
 
+TEST_F(ImageViewerTest, ApplyGradientChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    chameleon::GradientParams params;
+    params.type = chameleon::GradientType::Sobel;
+    params.dx = 1;
+    params.dy = 0;
+    params.ksize = 3;
+    m_viewer->applyGradient(params);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
+TEST_F(ImageViewerTest, ApplyEdgeDetectionChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    chameleon::CannyParams params;
+    params.threshold1 = 50;
+    params.threshold2 = 150;
+    m_viewer->applyEdgeDetection(params);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
