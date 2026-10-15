@@ -16,7 +16,9 @@
 #include <QSignalSpy>
 #include <QSlider>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QStatusBar>
 #include <QToolButton>
 #include <QtTest/QTest>
@@ -25,6 +27,7 @@
 #include "processing/image_io.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/back_project_dialog.h"
+#include "ui/convolution_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/image_window.h"
 #include "ui/histogram_window.h"
@@ -34,6 +37,7 @@
 using chameleon::AppState;
 using chameleon::HistogramCompareDialog;
 using chameleon::BackProjectDialog;
+using chameleon::ConvolutionDialog;
 using chameleon::HistogramMatchDialog;
 using chameleon::ImageWindow;
 using chameleon::HistogramWindow;
@@ -577,6 +581,65 @@ TEST_F(MainWindowTest, BackProjectMenuActionShowsResultWindow)
     dialog->close();
     QCoreApplication::processEvents();
     QFile::remove(templ);
+}
+
+TEST_F(MainWindowTest, ConvolutionDialogExposesParamsAndApplies)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *convolutionButton = s_window->findChild<QToolButton *>("convolutionButton");
+    ASSERT_NE(convolutionButton, nullptr);
+    convolutionButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ConvolutionDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *typeCombo = dialog->findChild<QComboBox *>("convolutionTypeCombo");
+    auto *kernelSpin = dialog->findChild<QSpinBox *>("convolutionKernelSpin");
+    auto *sigmaXSpin = dialog->findChild<QDoubleSpinBox *>("convolutionSigmaXSpin");
+    auto *sigmaYSpin = dialog->findChild<QDoubleSpinBox *>("convolutionSigmaYSpin");
+    auto *deltaSpin = dialog->findChild<QDoubleSpinBox *>("convolutionDeltaSpin");
+    auto *cell = dialog->findChild<QDoubleSpinBox *>("convolutionKernelCell0");
+    auto *applyButton = dialog->findChild<QPushButton *>("convolutionApplyButton");
+    ASSERT_NE(typeCombo, nullptr);
+    ASSERT_NE(kernelSpin, nullptr);
+    ASSERT_NE(sigmaXSpin, nullptr);
+    ASSERT_NE(sigmaYSpin, nullptr);
+    ASSERT_NE(deltaSpin, nullptr);
+    ASSERT_NE(cell, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    EXPECT_EQ(typeCombo->count(), 4);
+
+    // Gaussian (default): sigma editable, custom kernel disabled
+    EXPECT_TRUE(sigmaXSpin->isEnabled());
+    EXPECT_FALSE(cell->isEnabled());
+    EXPECT_FALSE(deltaSpin->isEnabled());
+
+    // Custom: kernel cells and delta enabled, sigma and kernel size disabled
+    typeCombo->setCurrentIndex(3);
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(cell->isEnabled());
+    EXPECT_TRUE(deltaSpin->isEnabled());
+    EXPECT_FALSE(sigmaXSpin->isEnabled());
+    EXPECT_FALSE(kernelSpin->isEnabled());
+
+    // Median: apply and check the effect on the viewer
+    typeCombo->setCurrentIndex(2);
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(kernelSpin->isEnabled());
+    kernelSpin->setValue(3);
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
 }
 
 TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)

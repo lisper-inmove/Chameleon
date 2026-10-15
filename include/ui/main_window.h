@@ -36,6 +36,7 @@ private:
     void compareHistograms();
     void matchHistograms();
     void backProjectHistograms();
+    void openConvolutionDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

@@ -12,6 +12,7 @@
 #include <QtTest/QTest>
 
 #include "app/app_state.h"
+#include "processing/filter_processor.h"
 #include "ui/image_viewer_widget.h"
 
 using chameleon::AppState;
@@ -589,6 +590,23 @@ TEST_F(ImageViewerTest, MatchHistogramChangesImageAndUndoRestores)
     // A solid bright template remaps the luminance drastically
     const cv::Mat templateImage(32, 32, CV_8UC3, cv::Scalar(200, 200, 200));
     m_viewer->matchHistogram(templateImage);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
+TEST_F(ImageViewerTest, ApplyConvolutionChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    chameleon::BlurParams params;
+    params.type = chameleon::BlurType::Gaussian;
+    params.kernelSize = 7;
+    m_viewer->applyConvolution(params);
     EXPECT_NE(m_viewer->grab().toImage(), before);
 
     m_viewer->undo();

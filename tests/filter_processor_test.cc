@@ -4,6 +4,9 @@
 
 #include "processing/filter_processor.h"
 
+using chameleon::applyBlur;
+using chameleon::BlurParams;
+using chameleon::BlurType;
 using chameleon::FilterProcessor;
 
 TEST(FilterProcessorTest, IdentityWhenAllParamsZero)
@@ -79,4 +82,93 @@ TEST(FilterProcessorTest, AlphaChannelIsPreserved)
             EXPECT_GT(p[0], 100);     // brightness applied to color channels
         }
     }
+}
+
+TEST(FilterProcessorTest, BlurKeepsUniformImageUnchanged)
+{
+    const cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    for (BlurType type : {BlurType::Box, BlurType::Gaussian, BlurType::Median}) {
+        BlurParams params;
+        params.type = type;
+        params.kernelSize = 5;
+        const cv::Mat out = applyBlur(gray, params);
+        cv::Mat diff;
+        cv::absdiff(out, gray, diff);
+        EXPECT_EQ(cv::countNonZero(diff), 0);
+    }
+}
+
+TEST(FilterProcessorTest, BoxBlurSpreadsAnImpulse)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(16, 16) = 255;
+    BlurParams params;
+    params.type = BlurType::Box;
+    params.kernelSize = 3;
+
+    const cv::Mat out = applyBlur(gray, params);
+    // (255 + 8*100) / 9 = 117.2 -> rounded 117
+    EXPECT_NEAR(int(out.at<uchar>(16, 16)), 117, 2);
+    EXPECT_NEAR(int(out.at<uchar>(16, 17)), 117, 2);
+    EXPECT_EQ(out.at<uchar>(18, 18), 100);  // outside the 3x3 reach
+}
+
+TEST(FilterProcessorTest, GaussianBlurSmoothsAnImpulse)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(16, 16) = 255;
+    BlurParams params;
+    params.type = BlurType::Gaussian;
+    params.kernelSize = 5;
+    params.sigmaX = 1.5;
+    params.sigmaY = 1.5;
+
+    const cv::Mat out = applyBlur(gray, params);
+    EXPECT_LT(out.at<uchar>(16, 16), 255);
+    EXPECT_GT(out.at<uchar>(16, 16), 100);
+    EXPECT_EQ(out.at<uchar>(0, 0), 100);  // outside the kernel reach
+}
+
+TEST(FilterProcessorTest, MedianBlurRemovesIsolatedNoise)
+{
+    cv::Mat gray(16, 16, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(8, 8) = 255;  // salt
+    gray.at<uchar>(4, 4) = 0;    // pepper
+    BlurParams params;
+    params.type = BlurType::Median;
+    params.kernelSize = 3;
+
+    const cv::Mat out = applyBlur(gray, params);
+    EXPECT_EQ(out.at<uchar>(8, 8), 100);
+    EXPECT_EQ(out.at<uchar>(4, 4), 100);
+    EXPECT_EQ(out.at<uchar>(0, 0), 100);
+}
+
+TEST(FilterProcessorTest, CustomKernelIdentityAndDelta)
+{
+    const cv::Mat gray(16, 16, CV_8UC1, cv::Scalar(100));
+    BlurParams params;
+    params.type = BlurType::Custom;
+    // The default kernel is the identity
+    cv::Mat out = applyBlur(gray, params);
+    cv::Mat diff;
+    cv::absdiff(out, gray, diff);
+    EXPECT_EQ(cv::countNonZero(diff), 0);
+
+    // Delta offsets every pixel
+    params.delta = 10;
+    out = applyBlur(gray, params);
+    EXPECT_EQ(out.at<uchar>(8, 8), 110);
+}
+
+TEST(FilterProcessorTest, BlurKeepsColorTypeAndSize)
+{
+    const cv::Mat bgra(16, 16, CV_8UC4, cv::Scalar(30, 120, 200, 77));
+    BlurParams params;
+    params.type = BlurType::Gaussian;
+    params.kernelSize = 3;
+
+    const cv::Mat out = applyBlur(bgra, params);
+    EXPECT_EQ(out.type(), CV_8UC4);
+    EXPECT_EQ(out.size(), bgra.size());
 }

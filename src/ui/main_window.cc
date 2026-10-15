@@ -30,6 +30,7 @@
 #include "processing/image_io.h"
 #include "ui/filter_panel.h"
 #include "ui/back_project_dialog.h"
+#include "ui/convolution_dialog.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
@@ -334,6 +335,14 @@ void MainWindow::setupToolBar()
     histogramButton->setMenu(histogramMenu);
     toolBar->addWidget(histogramButton);
 
+    auto *convolutionButton = new QToolButton(toolBar);
+    convolutionButton->setText(QStringLiteral("卷积..."));
+    convolutionButton->setObjectName("convolutionButton");
+    convolutionButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(convolutionButton, &QToolButton::clicked,
+            this, &MainWindow::openConvolutionDialog);
+    toolBar->addWidget(convolutionButton);
+
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(spacer);
@@ -567,6 +576,19 @@ void MainWindow::backProjectHistograms()
         window->setObjectName(QStringLiteral("backProjectionWindow"));
         window->show();
         statusBar()->showMessage(QStringLiteral("已生成反向投影结果"), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::openConvolutionDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    auto *dialog = new ConvolutionDialog(this);
+    connect(dialog, &ConvolutionDialog::applyRequested, this, [this, dialog] {
+        m_viewer->applyConvolution(dialog->blurParams());
+        statusBar()->showMessage(
+            QStringLiteral("已应用卷积:%1").arg(dialog->currentTypeName()), 2500);
     });
     dialog->show();
 }

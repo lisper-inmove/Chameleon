@@ -1,5 +1,7 @@
 #include "processing/filter_processor.h"
 
+#include <algorithm>
+
 #include <opencv2/imgproc.hpp>
 
 namespace chameleon {
@@ -49,6 +51,39 @@ cv::Mat FilterProcessor::apply(
     }
 
     return color;
+}
+
+cv::Mat applyBlur(const cv::Mat &image, const BlurParams &params)
+{
+    if (image.empty())
+        return {};
+
+    // Blur kernels use odd sizes; the median filter additionally only
+    // supports 3 and 5 for multi-channel 8-bit images
+    int kernel = std::clamp(params.kernelSize, 1, 31);
+    if (kernel % 2 == 0)
+        ++kernel;  // blur kernels are odd-sized
+    cv::Mat out;
+    switch (params.type) {
+    case BlurType::Box:
+        cv::blur(image, out, cv::Size(kernel, kernel));
+        break;
+    case BlurType::Gaussian:
+        cv::GaussianBlur(image, out, cv::Size(kernel, kernel),
+                         params.sigmaX, params.sigmaY);
+        break;
+    case BlurType::Median:
+        cv::medianBlur(image, out, std::clamp(kernel, 3, 5));
+        break;
+    case BlurType::Custom: {
+        cv::Mat kernelMat(3, 3, CV_64F);
+        for (int i = 0; i < 9; ++i)
+            kernelMat.at<double>(i / 3, i % 3) = params.kernel[size_t(i)];
+        cv::filter2D(image, out, -1, kernelMat, cv::Point(-1, -1), params.delta);
+        break;
+    }
+    }
+    return out;
 }
 
 } // namespace chameleon

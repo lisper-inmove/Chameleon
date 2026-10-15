@@ -319,6 +319,13 @@ void ImageViewerWidget::matchHistogram(const cv::Mat &templateImage)
     });
 }
 
+void ImageViewerWidget::applyConvolution(const BlurParams &params)
+{
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::applyBlur(image, params);
+    });
+}
+
 void ImageViewerWidget::applyOperation(
     const std::function<cv::Mat(const cv::Mat &)> &transform)
 {

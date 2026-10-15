@@ -13,6 +13,8 @@
 
 #include <opencv2/core.hpp>
 
+#include "processing/filter_processor.h"
+
 namespace chameleon {
 
 // Central image display: zoom/pan via paintEvent, empty/loading/error states.
@@ -64,6 +66,8 @@ public:
     void equalizeClahe();
     // Histogram matching to the given template image; undoable
     void matchHistogram(const cv::Mat &templateImage);
+    // One-shot convolution/blur; undoable
+    void applyConvolution(const BlurParams &params);
 
 signals:
     void selectionChanged();
