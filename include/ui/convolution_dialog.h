@@ -38,6 +38,9 @@ private:
     QDoubleSpinBox *m_sigmaYSpin = nullptr;
     QDoubleSpinBox *m_deltaSpin = nullptr;
     std::array<QDoubleSpinBox *, 9> m_kernelCells{};
+    QDoubleSpinBox *m_sigmaColorSpin = nullptr;
+    QDoubleSpinBox *m_sigmaSpaceSpin = nullptr;
+    QComboBox *m_borderTypeCombo = nullptr;
     QWidget *m_kernelGrid = nullptr;
     QLabel *m_hint = nullptr;
 };

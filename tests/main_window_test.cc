@@ -614,6 +614,9 @@ TEST_F(MainWindowTest, ConvolutionDialogExposesParamsAndApplies)
     auto *sigmaXSpin = dialog->findChild<QDoubleSpinBox *>("convolutionSigmaXSpin");
     auto *sigmaYSpin = dialog->findChild<QDoubleSpinBox *>("convolutionSigmaYSpin");
     auto *deltaSpin = dialog->findChild<QDoubleSpinBox *>("convolutionDeltaSpin");
+    auto *sigmaColorSpin = dialog->findChild<QDoubleSpinBox *>("convolutionSigmaColorSpin");
+    auto *sigmaSpaceSpin = dialog->findChild<QDoubleSpinBox *>("convolutionSigmaSpaceSpin");
+    auto *borderCombo = dialog->findChild<QComboBox *>("convolutionBorderTypeCombo");
     auto *cell = dialog->findChild<QDoubleSpinBox *>("convolutionKernelCell0");
     auto *applyButton = dialog->findChild<QPushButton *>("convolutionApplyButton");
     ASSERT_NE(typeCombo, nullptr);
@@ -621,9 +624,13 @@ TEST_F(MainWindowTest, ConvolutionDialogExposesParamsAndApplies)
     ASSERT_NE(sigmaXSpin, nullptr);
     ASSERT_NE(sigmaYSpin, nullptr);
     ASSERT_NE(deltaSpin, nullptr);
+    ASSERT_NE(sigmaColorSpin, nullptr);
+    ASSERT_NE(sigmaSpaceSpin, nullptr);
+    ASSERT_NE(borderCombo, nullptr);
     ASSERT_NE(cell, nullptr);
     ASSERT_NE(applyButton, nullptr);
-    EXPECT_EQ(typeCombo->count(), 7);
+    EXPECT_EQ(typeCombo->count(), 8);
+    EXPECT_GE(borderCombo->count(), 3);
 
     // Gaussian (default): sigma editable, custom kernel disabled
     EXPECT_TRUE(sigmaXSpin->isEnabled());

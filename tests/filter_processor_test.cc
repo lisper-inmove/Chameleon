@@ -455,3 +455,53 @@ TEST(FilterProcessorTest, CannyColorInputKeepsChannels)
             EXPECT_EQ(outAlpha.at<cv::Vec4b>(y, x)[3], 77);  // alpha preserved
     }
 }
+
+TEST(FilterProcessorTest, BilateralKeepsUniformImageUnchanged)
+{
+    const cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    for (int border : {cv::BORDER_DEFAULT, cv::BORDER_REFLECT, cv::BORDER_REPLICATE}) {
+        BlurParams params;
+        params.type = BlurType::Bilateral;
+        params.kernelSize = 5;
+        params.sigmaColor = 50;
+        params.sigmaSpace = 50;
+        params.borderType = border;
+
+        const cv::Mat out = applyBlur(gray, params);
+        cv::Mat diff;
+        cv::absdiff(out, gray, diff);
+        EXPECT_EQ(cv::countNonZero(diff), 0);
+    }
+}
+
+TEST(FilterProcessorTest, BilateralPreservesEdgesWithSmallSigmaColor)
+{
+    const cv::Mat gray = verticalEdgeImage();  // 0 | 255 step
+    BlurParams params;
+    params.type = BlurType::Bilateral;
+    params.kernelSize = 5;
+    params.sigmaColor = 10;  // the 255 step is far beyond the color sigma
+    params.sigmaSpace = 50;
+
+    const cv::Mat out = applyBlur(gray, params);
+    // The edge stays perfectly sharp: no cross-edge blending
+    EXPECT_EQ(out.at<uchar>(8, 15), 0);
+    EXPECT_EQ(out.at<uchar>(8, 16), 255);
+    EXPECT_EQ(out.at<uchar>(8, 8), 0);
+}
+
+TEST(FilterProcessorTest, BilateralSmoothsOutliersDependingOnSigmaColor)
+{
+    cv::Mat gray(16, 16, CV_8UC1, cv::Scalar(100));
+    gray.at<uchar>(8, 8) = 150;  // moderate outlier inside a flat region
+    BlurParams params;
+    params.type = BlurType::Bilateral;
+    params.kernelSize = 5;
+    params.sigmaSpace = 50;
+
+    params.sigmaColor = 1;  // the 50-level difference is preserved
+    EXPECT_EQ(applyBlur(gray, params).at<uchar>(8, 8), 150);
+
+    params.sigmaColor = 100;  // pulled toward the surrounding 100s
+    EXPECT_LT(applyBlur(gray, params).at<uchar>(8, 8), 130);
+}

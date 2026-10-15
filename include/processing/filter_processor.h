@@ -34,6 +34,7 @@ enum class BlurType {
     HorizontalBox,  // cv::filter2D     (kernel-size row filter, along x)
     VerticalBox,    // cv::filter2D     (kernel-size column filter, along y)
     DiagonalBox,    // cv::filter2D     (kernel-size diagonal filter, \)
+    Bilateral,      // cv::bilateralFilter (edge-preserving)
 };
 
 struct BlurParams {
@@ -44,6 +45,10 @@ struct BlurParams {
     // Custom (filter2D): row-major 3x3 kernel, identity by default
     std::array<double, 9> kernel = {0, 0, 0, 0, 1, 0, 0, 0, 0};
     double delta = 0.0;   // added to every result pixel (Custom)
+    // Bilateral: kernelSize acts as the neighborhood diameter d
+    double sigmaColor = 25.0;
+    double sigmaSpace = 25.0;
+    int borderType = cv::BORDER_DEFAULT;
 };
 
 // Applies the selected convolution. All channels (including alpha) are

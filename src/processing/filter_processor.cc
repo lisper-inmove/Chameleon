@@ -82,6 +82,10 @@ cv::Mat applyBlur(const cv::Mat &image, const BlurParams &params)
         cv::filter2D(image, out, -1, kernelMat, cv::Point(-1, -1), params.delta);
         break;
     }
+    case BlurType::Bilateral:
+        cv::bilateralFilter(image, out, kernel, params.sigmaColor,
+                            params.sigmaSpace, params.borderType);
+        break;
     case BlurType::HorizontalBox:
     case BlurType::VerticalBox:
     case BlurType::DiagonalBox: {

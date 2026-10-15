@@ -55,7 +55,7 @@
 - [ ] 色相 / 色彩平衡(饱和度已实现)
 - [ ] 灰度化、反色
 - [x] 模糊:均值 / 高斯 / 中值(卷积对话框,参数可调,支持选区,可撤销)
-- [ ] 双边滤波
+- [x] 双边滤波/边缘保留滤波(bilateralFilter;d/SigmaColor/SigmaSpace/边界可调,在卷积对话框)
 - [x] 方向模糊:水平 / 垂直 / 对角线(filter2D 方向核,核大小可调)
 - [ ] 锐化(unsharp mask)
 - [x] 梯度提取:Prewitt(filter2D)/ Sobel / Scharr,dx/dy/ksize/scale/delta 可调(梯度对话框)

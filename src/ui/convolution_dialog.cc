@@ -41,6 +41,7 @@ ConvolutionDialog::ConvolutionDialog(QWidget *parent) : QDialog(parent)
     m_typeCombo->addItem(QStringLiteral("水平模糊"));
     m_typeCombo->addItem(QStringLiteral("垂直模糊"));
     m_typeCombo->addItem(QStringLiteral("对角线模糊"));
+    m_typeCombo->addItem(QStringLiteral("双边滤波"));
     m_typeCombo->setCurrentIndex(1);  // Gaussian
 
     m_kernelSpin = new QSpinBox(this);
@@ -52,6 +53,15 @@ ConvolutionDialog::ConvolutionDialog(QWidget *parent) : QDialog(parent)
     m_sigmaXSpin = makeSpin(this, "convolutionSigmaXSpin", 0.0, 20.0, 0.0, 0.5);
     m_sigmaYSpin = makeSpin(this, "convolutionSigmaYSpin", 0.0, 20.0, 0.0, 0.5);
     m_deltaSpin = makeSpin(this, "convolutionDeltaSpin", -255.0, 255.0, 0.0, 1.0);
+    m_sigmaColorSpin = makeSpin(this, "convolutionSigmaColorSpin", 1.0, 200.0, 25.0, 5.0);
+    m_sigmaSpaceSpin = makeSpin(this, "convolutionSigmaSpaceSpin", 1.0, 200.0, 25.0, 5.0);
+
+    m_borderTypeCombo = new QComboBox(this);
+    m_borderTypeCombo->setObjectName(QStringLiteral("convolutionBorderTypeCombo"));
+    m_borderTypeCombo->addItem(QStringLiteral("默认"), int(cv::BORDER_DEFAULT));
+    m_borderTypeCombo->addItem(QStringLiteral("反射"), int(cv::BORDER_REFLECT));
+    m_borderTypeCombo->addItem(QStringLiteral("复制边缘"), int(cv::BORDER_REPLICATE));
+    m_borderTypeCombo->addItem(QStringLiteral("反射(101)"), int(cv::BORDER_REFLECT_101));
 
     // Custom 3x3 kernel (row-major, identity by default)
     m_kernelGrid = new QWidget(this);
@@ -82,6 +92,9 @@ ConvolutionDialog::ConvolutionDialog(QWidget *parent) : QDialog(parent)
     form->addRow(QStringLiteral("SigmaY:"), m_sigmaYSpin);
     form->addRow(QStringLiteral("卷积核(3×3):"), m_kernelGrid);
     form->addRow(QStringLiteral("Delta:"), m_deltaSpin);
+    form->addRow(QStringLiteral("SigmaColor:"), m_sigmaColorSpin);
+    form->addRow(QStringLiteral("SigmaSpace:"), m_sigmaSpaceSpin);
+    form->addRow(QStringLiteral("边界:"), m_borderTypeCombo);
 
     auto *layout = new QVBoxLayout(this);
     layout->addLayout(form);
@@ -96,6 +109,10 @@ ConvolutionDialog::ConvolutionDialog(QWidget *parent) : QDialog(parent)
 
 void ConvolutionDialog::updateParameterVisibility()
 {
+    // Bilateral-only parameters; the bilateral branch below re-enables them
+    m_sigmaColorSpin->setEnabled(false);
+    m_sigmaSpaceSpin->setEnabled(false);
+    m_borderTypeCombo->setEnabled(false);
     switch (m_typeCombo->currentIndex()) {
     case 0:  // 均值
         m_kernelSpin->setEnabled(true);
@@ -136,6 +153,19 @@ void ConvolutionDialog::updateParameterVisibility()
         else
             m_hint->setText(QStringLiteral("沿主对角线(左上→右下)取平均(filter2D)。"));
         break;
+    case 7:  // 双边滤波
+        m_kernelSpin->setEnabled(true);
+        m_sigmaXSpin->setEnabled(false);
+        m_sigmaYSpin->setEnabled(false);
+        m_kernelGrid->setEnabled(false);
+        m_deltaSpin->setEnabled(false);
+        m_sigmaColorSpin->setEnabled(true);
+        m_sigmaSpaceSpin->setEnabled(true);
+        m_borderTypeCombo->setEnabled(true);
+        m_hint->setText(QStringLiteral(
+            "双边滤波:保留边缘的同时平滑;核大小为邻域直径,SigmaColor 控制颜色差异"
+            "容忍度(越大越多像素参与平均),SigmaSpace 控制空间范围。"));
+        break;
     case 1:  // 高斯
     default:
         m_kernelSpin->setEnabled(true);
@@ -170,6 +200,9 @@ BlurParams ConvolutionDialog::blurParams() const
     case 6:
         params.type = BlurType::DiagonalBox;
         break;
+    case 7:
+        params.type = BlurType::Bilateral;
+        break;
     case 1:
     default:
         params.type = BlurType::Gaussian;
@@ -179,6 +212,9 @@ BlurParams ConvolutionDialog::blurParams() const
     params.sigmaX = m_sigmaXSpin->value();
     params.sigmaY = m_sigmaYSpin->value();
     params.delta = m_deltaSpin->value();
+    params.sigmaColor = m_sigmaColorSpin->value();
+    params.sigmaSpace = m_sigmaSpaceSpin->value();
+    params.borderType = m_borderTypeCombo->currentData().toInt();
     for (int i = 0; i < 9; ++i)
         params.kernel[size_t(i)] = m_kernelCells[size_t(i)]->value();
     return params;
