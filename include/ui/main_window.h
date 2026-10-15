@@ -40,6 +40,7 @@ private:
     void openGradientDialog();
     void openEdgeDialog();
     void openNoiseDialog();
+    void openSharpenDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

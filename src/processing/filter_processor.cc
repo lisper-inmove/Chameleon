@@ -175,6 +175,67 @@ cv::Mat applyGradient(const cv::Mat &image, const GradientParams &params)
     return out;
 }
 
+cv::Mat applyLaplacianSharpen(const cv::Mat &image, const SharpenParams &params)
+{
+    if (image.empty())
+        return {};
+
+    cv::Mat color = image;
+    cv::Mat alpha;
+    if (image.channels() == 4) {
+        std::vector<cv::Mat> channels;
+        cv::split(image, channels);
+        alpha = channels[3];
+        cv::merge(std::vector<cv::Mat>{channels[0], channels[1], channels[2]}, color);
+    }
+
+    int ksize = std::clamp(params.ksize, 1, 7);
+    if (ksize % 2 == 0)
+        ++ksize;
+    cv::Mat laplacian;
+    cv::Laplacian(color, laplacian, CV_32F, ksize);
+
+    cv::Mat floatColor;
+    color.convertTo(floatColor, CV_32F);
+    const cv::Mat sharpened = floatColor - params.strength * laplacian;
+
+    cv::Mat out;
+    sharpened.convertTo(out, image.type());  // saturates back to 8 bits
+    if (!alpha.empty()) {
+        std::vector<cv::Mat> channels;
+        cv::split(out, channels);
+        channels.push_back(alpha);
+        cv::merge(channels, out);
+    }
+    return out;
+}
+
+double imageSharpness(const cv::Mat &image)
+{
+    if (image.empty())
+        return 0.0;
+
+    cv::Mat gray;
+    if (image.channels() == 1) {
+        gray = image;
+    } else {
+        cv::Mat color = image;
+        if (image.channels() == 4) {
+            std::vector<cv::Mat> channels;
+            cv::split(image, channels);
+            cv::merge(std::vector<cv::Mat>{channels[0], channels[1], channels[2]}, color);
+        }
+        cv::cvtColor(color, gray, cv::COLOR_BGR2GRAY);
+    }
+
+    cv::Mat laplacian;
+    cv::Laplacian(gray, laplacian, CV_64F);
+    cv::Scalar mean;
+    cv::Scalar stddev;
+    cv::meanStdDev(laplacian, mean, stddev);
+    return stddev[0] * stddev[0];  // variance of the Laplacian
+}
+
 cv::Mat applyCanny(const cv::Mat &image, const CannyParams &params)
 {
     if (image.empty())

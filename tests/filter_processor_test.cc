@@ -6,6 +6,9 @@
 
 using chameleon::applyBlur;
 using chameleon::applyCanny;
+using chameleon::applyLaplacianSharpen;
+using chameleon::imageSharpness;
+using chameleon::SharpenParams;
 using chameleon::applyGradient;
 using chameleon::CannyParams;
 using chameleon::GradientParams;
@@ -504,4 +507,85 @@ TEST(FilterProcessorTest, BilateralSmoothsOutliersDependingOnSigmaColor)
 
     params.sigmaColor = 100;  // pulled toward the surrounding 100s
     EXPECT_LT(applyBlur(gray, params).at<uchar>(8, 8), 130);
+}
+
+TEST(FilterProcessorTest, LaplacianSharpenKeepsFlatRegionsUnchanged)
+{
+    const cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    for (int ksize : {1, 3}) {
+        SharpenParams params;
+        params.ksize = ksize;
+        params.strength = 2.0;
+        const cv::Mat out = applyLaplacianSharpen(gray, params);
+        cv::Mat diff;
+        cv::absdiff(out, gray, diff);
+        EXPECT_EQ(cv::countNonZero(diff), 0);
+    }
+}
+
+TEST(FilterProcessorTest, LaplacianSharpenExaggeratesEdges)
+{
+    cv::Mat gray(16, 32, CV_8UC1, cv::Scalar(100));
+    gray.colRange(16, 32).setTo(200);
+    SharpenParams params;
+    params.ksize = 1;  // the 4-neighbor kernel gives exact arithmetic
+
+    // out = image - strength * laplacian; at the dark side of the edge
+    // the laplacian is +100 -> 100 - 100 = 0; at the bright side it is
+    // -100 -> 200 + 100 = 300 -> saturated 255
+    params.strength = 1.0;
+    const cv::Mat out = applyLaplacianSharpen(gray, params);
+    EXPECT_EQ(out.at<uchar>(8, 14), 100);  // away from the edge: unchanged
+    EXPECT_EQ(out.at<uchar>(8, 15), 0);
+    EXPECT_EQ(out.at<uchar>(8, 16), 255);
+    EXPECT_EQ(out.at<uchar>(8, 17), 200);
+
+    params.strength = 0.5;
+    const cv::Mat half = applyLaplacianSharpen(gray, params);
+    EXPECT_EQ(half.at<uchar>(8, 15), 50);
+    EXPECT_EQ(half.at<uchar>(8, 16), 250);
+}
+
+TEST(FilterProcessorTest, SharpenIncreasesTheSharpnessMetric)
+{
+    cv::Mat gray(32, 32, CV_8UC1, cv::Scalar(100));
+    gray.colRange(16, 32).setTo(200);
+    BlurParams blur;
+    blur.type = BlurType::Gaussian;
+    blur.kernelSize = 7;
+    const cv::Mat blurred = applyBlur(gray, blur);
+
+    SharpenParams sharpen;
+    sharpen.ksize = 3;
+    sharpen.strength = 1.0;
+    const cv::Mat sharpened = applyLaplacianSharpen(blurred, sharpen);
+
+    EXPECT_GT(imageSharpness(sharpened), imageSharpness(blurred));
+}
+
+TEST(FilterProcessorTest, SharpnessIsZeroOnFlatImagesAndPositiveOnEdges)
+{
+    const cv::Mat flat(32, 32, CV_8UC1, cv::Scalar(100));
+    EXPECT_DOUBLE_EQ(imageSharpness(flat), 0.0);
+
+    cv::Mat edge(32, 32, CV_8UC1, cv::Scalar(100));
+    edge.colRange(16, 32).setTo(200);
+    EXPECT_GT(imageSharpness(edge), 0.0);
+
+    EXPECT_DOUBLE_EQ(imageSharpness(cv::Mat()), 0.0);
+}
+
+TEST(FilterProcessorTest, LaplacianSharpenPreservesAlphaAndType)
+{
+    const cv::Mat bgra(16, 16, CV_8UC4, cv::Scalar(30, 120, 200, 77));
+    SharpenParams params;
+    params.ksize = 3;
+    params.strength = 1.0;
+
+    const cv::Mat out = applyLaplacianSharpen(bgra, params);
+    ASSERT_EQ(out.type(), CV_8UC4);
+    for (int y = 0; y < out.rows; ++y) {
+        for (int x = 0; x < out.cols; ++x)
+            EXPECT_EQ(out.at<cv::Vec4b>(y, x)[3], 77);
+    }
 }

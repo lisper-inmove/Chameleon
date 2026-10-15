@@ -31,6 +31,7 @@
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
+#include "ui/sharpen_dialog.h"
 #include "ui/gradient_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/image_window.h"
@@ -44,6 +45,7 @@ using chameleon::BackProjectDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::EdgeDialog;
 using chameleon::NoiseDialog;
+using chameleon::SharpenDialog;
 using chameleon::GradientDialog;
 using chameleon::HistogramMatchDialog;
 using chameleon::ImageWindow;
@@ -940,6 +942,50 @@ TEST_F(MainWindowTest, HistogramWindowsAreReusedAndUpdated)
 
     for (auto *w : s_window->findChildren<HistogramWindow *>())
         w->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, SharpenDialogExposesParamsAndSharpness)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *sharpenButton = s_window->findChild<QToolButton *>("sharpenButton");
+    ASSERT_NE(sharpenButton, nullptr);
+    sharpenButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<SharpenDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *ksizeSpin = dialog->findChild<QSpinBox *>("sharpenKsizeSpin");
+    auto *strengthSpin = dialog->findChild<QDoubleSpinBox *>("sharpenStrengthSpin");
+    auto *applyButton = dialog->findChild<QPushButton *>("sharpenApplyButton");
+    auto *measureButton = dialog->findChild<QPushButton *>("sharpenMeasureButton");
+    auto *sharpnessLabel = dialog->findChild<QLabel *>("sharpenSharpnessLabel");
+    ASSERT_NE(ksizeSpin, nullptr);
+    ASSERT_NE(strengthSpin, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(measureButton, nullptr);
+    ASSERT_NE(sharpnessLabel, nullptr);
+    EXPECT_EQ(ksizeSpin->minimum(), 1);
+    EXPECT_EQ(ksizeSpin->maximum(), 7);
+
+    // The sharpness of the current image is shown right away and can be
+    // recomputed on demand
+    EXPECT_TRUE(sharpnessLabel->text().contains(QStringLiteral("锐度")));
+    measureButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(sharpnessLabel->text().contains(QStringLiteral("锐度")));
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
     QCoreApplication::processEvents();
 }
 

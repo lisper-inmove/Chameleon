@@ -340,6 +340,13 @@ void ImageViewerWidget::applyEdgeDetection(const CannyParams &params)
     });
 }
 
+void ImageViewerWidget::applySharpening(const SharpenParams &params)
+{
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::applyLaplacianSharpen(image, params);
+    });
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo

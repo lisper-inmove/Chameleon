@@ -57,7 +57,8 @@
 - [x] 模糊:均值 / 高斯 / 中值(卷积对话框,参数可调,支持选区,可撤销)
 - [x] 双边滤波/边缘保留滤波(bilateralFilter;d/SigmaColor/SigmaSpace/边界可调,在卷积对话框)
 - [x] 方向模糊:水平 / 垂直 / 对角线(filter2D 方向核,核大小可调)
-- [ ] 锐化(unsharp mask)
+- [x] 拉普拉斯锐化(核大小/强度可调;附带锐度计算——拉普拉斯方差,锐化对话框)
+- [ ] 锐化:USM(unsharp mask)
 - [x] 梯度提取:Prewitt(filter2D)/ Sobel / Scharr,dx/dy/ksize/scale/delta 可调(梯度对话框)
 - [x] 边缘检测:Canny(threshold1/2、核大小、L2 梯度可调;边缘对话框,支持选区,可撤销)
 - [ ] 边缘检测:Laplacian

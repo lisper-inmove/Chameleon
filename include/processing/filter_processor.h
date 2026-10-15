@@ -77,6 +77,22 @@ struct GradientParams {
 // flags; Scharr normalizes to exactly one first-order direction.
 cv::Mat applyGradient(const cv::Mat &image, const GradientParams &params);
 
+// Laplacian sharpening parameters.
+struct SharpenParams {
+    int ksize = 3;         // Laplacian aperture, odd [1, 7]
+    double strength = 1.0; // k in out = image - k * laplacian
+};
+
+// Laplacian sharpening: out = image - strength * laplacian(image), which
+// overshoots at edges (darker on the dark side, brighter on the bright
+// side). Color input is processed per channel; alpha is preserved.
+cv::Mat applyLaplacianSharpen(const cv::Mat &image, const SharpenParams &params);
+
+// Standard sharpness/focus measure: the variance of the Laplacian
+// computed on the luminance. Flat images score 0; more/stronger edges
+// score higher. Empty input returns 0.
+double imageSharpness(const cv::Mat &image);
+
 // Canny edge detection parameters.
 struct CannyParams {
     double threshold1 = 100.0;  // hysteresis thresholds (order-insensitive)

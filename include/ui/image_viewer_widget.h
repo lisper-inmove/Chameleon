@@ -73,6 +73,8 @@ public:
     void applyGradient(const GradientParams &params);
     // One-shot Canny edge detection; undoable
     void applyEdgeDetection(const CannyParams &params);
+    // One-shot Laplacian sharpening; undoable
+    void applySharpening(const SharpenParams &params);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);

@@ -23,6 +23,7 @@ target_sources(chameleon_lib PRIVATE
     include/ui/filter_panel.h
     include/ui/gradient_dialog.h
     include/ui/noise_dialog.h
+    include/ui/sharpen_dialog.h
     include/ui/histogram_compare_dialog.h
     include/ui/histogram_match_dialog.h
     include/ui/histogram_window.h
@@ -43,6 +44,7 @@ target_sources(chameleon_lib PRIVATE
     src/ui/filter_panel.cc
     src/ui/gradient_dialog.cc
     src/ui/noise_dialog.cc
+    src/ui/sharpen_dialog.cc
     src/ui/histogram_compare_dialog.cc
     src/ui/histogram_match_dialog.cc
     src/ui/histogram_window.cc

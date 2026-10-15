@@ -34,6 +34,7 @@
 #include "ui/edge_dialog.h"
 #include "ui/gradient_dialog.h"
 #include "ui/noise_dialog.h"
+#include "ui/sharpen_dialog.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
@@ -384,6 +385,14 @@ void MainWindow::setupToolBar()
             this, &MainWindow::openNoiseDialog);
     toolBar->addWidget(noiseButton);
 
+    auto *sharpenButton = new QToolButton(toolBar);
+    sharpenButton->setText(QStringLiteral("锐化..."));
+    sharpenButton->setObjectName("sharpenButton");
+    sharpenButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(sharpenButton, &QToolButton::clicked,
+            this, &MainWindow::openSharpenDialog);
+    toolBar->addWidget(sharpenButton);
+
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(spacer);
@@ -704,6 +713,31 @@ void MainWindow::openNoiseDialog()
         m_viewer->applyConvolution(dialog->denoiseParams());
         statusBar()->showMessage(QStringLiteral("已去噪"), 2500);
     });
+    dialog->show();
+}
+
+void MainWindow::openSharpenDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<SharpenDialog>(this))
+        return;
+    auto *dialog = new SharpenDialog(this);
+
+    // Sharpness of the current image or selection, refreshed on demand
+    // and after every apply
+    auto updateSharpness = [this, dialog] {
+        const cv::Mat source = m_viewer->hasSelection() ? m_viewer->selectionImage()
+                                                        : m_viewer->currentImage();
+        dialog->setSharpness(chameleon::imageSharpness(source));
+    };
+    connect(dialog, &SharpenDialog::applyRequested, this, [this, dialog, updateSharpness] {
+        m_viewer->applySharpening(dialog->sharpenParams());
+        updateSharpness();
+        statusBar()->showMessage(QStringLiteral("已应用拉普拉斯锐化"), 2500);
+    });
+    connect(dialog, &SharpenDialog::measureRequested, this, updateSharpness);
+    updateSharpness();
     dialog->show();
 }
 

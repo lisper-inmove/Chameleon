@@ -670,6 +670,23 @@ TEST_F(ImageViewerTest, AddNoiseChangesImageAndUndoRestores)
     EXPECT_EQ(m_viewer->grab().toImage(), before);
 }
 
+TEST_F(ImageViewerTest, ApplySharpeningChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    chameleon::SharpenParams params;
+    params.ksize = 3;
+    params.strength = 1.0;
+    m_viewer->applySharpening(params);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
