@@ -649,6 +649,27 @@ TEST_F(ImageViewerTest, ApplyEdgeDetectionChangesImageAndUndoRestores)
     EXPECT_EQ(m_viewer->grab().toImage(), before);
 }
 
+TEST_F(ImageViewerTest, AddNoiseChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    chameleon::SaltPepperParams saltPepper;
+    saltPepper.proportion = 0.05;
+    m_viewer->addSaltPepperNoise(saltPepper);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+
+    chameleon::GaussianNoiseParams gaussian;
+    m_viewer->addGaussianNoise(gaussian);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});

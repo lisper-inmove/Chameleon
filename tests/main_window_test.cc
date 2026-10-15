@@ -30,6 +30,7 @@
 #include "ui/back_project_dialog.h"
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
+#include "ui/noise_dialog.h"
 #include "ui/gradient_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/image_window.h"
@@ -42,6 +43,7 @@ using chameleon::HistogramCompareDialog;
 using chameleon::BackProjectDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::EdgeDialog;
+using chameleon::NoiseDialog;
 using chameleon::GradientDialog;
 using chameleon::HistogramMatchDialog;
 using chameleon::ImageWindow;
@@ -582,6 +584,11 @@ TEST_F(MainWindowTest, BackProjectMenuActionShowsResultWindow)
     ASSERT_NE(resultWindow, nullptr);
     EXPECT_EQ(resultWindow->imageSize(), QSize(640, 400));
 
+    // Recomputing reuses the same result window
+    computeButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_EQ(s_window->findChildren<ImageWindow *>("backProjectionWindow").size(), 1);
+
     resultWindow->close();
     dialog->close();
     QCoreApplication::processEvents();
@@ -751,6 +758,181 @@ TEST_F(MainWindowTest, EdgeDialogExposesParamsAndApplies)
     EXPECT_TRUE(action("undoAction")->isEnabled());
 
     dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, NoiseDialogExposesParamsAndApplies)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *noiseButton = s_window->findChild<QToolButton *>("noiseButton");
+    ASSERT_NE(noiseButton, nullptr);
+    noiseButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<NoiseDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *noiseTypeCombo = dialog->findChild<QComboBox *>("noiseTypeCombo");
+    auto *proportionSpin = dialog->findChild<QDoubleSpinBox *>("noiseProportionSpin");
+    auto *meanSpin = dialog->findChild<QDoubleSpinBox *>("noiseMeanSpin");
+    auto *sigmaSpin = dialog->findChild<QDoubleSpinBox *>("noiseSigmaSpin");
+    auto *denoiseTypeCombo = dialog->findChild<QComboBox *>("denoiseTypeCombo");
+    auto *denoiseKernelSpin = dialog->findChild<QSpinBox *>("denoiseKernelSpin");
+    auto *addNoiseButton = dialog->findChild<QPushButton *>("addNoiseButton");
+    auto *denoiseButton = dialog->findChild<QPushButton *>("denoiseButton");
+    ASSERT_NE(noiseTypeCombo, nullptr);
+    ASSERT_NE(proportionSpin, nullptr);
+    ASSERT_NE(meanSpin, nullptr);
+    ASSERT_NE(sigmaSpin, nullptr);
+    ASSERT_NE(denoiseTypeCombo, nullptr);
+    ASSERT_NE(denoiseKernelSpin, nullptr);
+    ASSERT_NE(addNoiseButton, nullptr);
+    ASSERT_NE(denoiseButton, nullptr);
+    EXPECT_EQ(noiseTypeCombo->count(), 2);
+    EXPECT_EQ(denoiseTypeCombo->count(), 2);
+
+    // Salt-pepper (default): proportion editable, Gaussian params disabled
+    EXPECT_TRUE(proportionSpin->isEnabled());
+    EXPECT_FALSE(meanSpin->isEnabled());
+    EXPECT_FALSE(sigmaSpin->isEnabled());
+
+    // Gaussian: swapped visibility
+    noiseTypeCombo->setCurrentIndex(1);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(proportionSpin->isEnabled());
+    EXPECT_TRUE(meanSpin->isEnabled());
+    EXPECT_TRUE(sigmaSpin->isEnabled());
+
+    // Add Gaussian noise, then denoise with the median filter
+    const QImage clean = viewer->grab().toImage();
+    addNoiseButton->click();
+    QCoreApplication::processEvents();
+    const QImage noisy = viewer->grab().toImage();
+    EXPECT_NE(noisy, clean);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    denoiseButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), noisy);
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, ToolbarDialogsAreUnique)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto clickTwice = [this](const char *buttonName) {
+        auto *button = s_window->findChild<QToolButton *>(buttonName);
+        EXPECT_NE(button, nullptr);
+        if (button) {
+            button->click();
+            QCoreApplication::processEvents();
+            button->click();
+            QCoreApplication::processEvents();
+        }
+    };
+
+    clickTwice("convolutionButton");
+    clickTwice("gradientButton");
+    clickTwice("edgeButton");
+    clickTwice("noiseButton");
+    EXPECT_EQ(s_window->findChildren<ConvolutionDialog *>().size(), 1);
+    EXPECT_EQ(s_window->findChildren<GradientDialog *>().size(), 1);
+    EXPECT_EQ(s_window->findChildren<EdgeDialog *>().size(), 1);
+    EXPECT_EQ(s_window->findChildren<NoiseDialog *>().size(), 1);
+
+    // Reopening reuses the dialog: in-progress parameter edits survive
+    auto *dialog = s_window->findChild<ConvolutionDialog *>();
+    auto *kernelSpin = dialog->findChild<QSpinBox *>("convolutionKernelSpin");
+    ASSERT_NE(kernelSpin, nullptr);
+    kernelSpin->setValue(7);
+    clickTwice("convolutionButton");
+    EXPECT_EQ(s_window->findChildren<ConvolutionDialog *>().size(), 1);
+    EXPECT_EQ(s_window->findChild<QSpinBox *>("convolutionKernelSpin")->value(), 7);
+
+    for (auto *d : s_window->findChildren<QDialog *>())
+        d->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, HistogramMenuDialogsAreUnique)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    auto triggerTwice = [histogramMenu](const QString &text) {
+        for (int round = 0; round < 2; ++round) {
+            for (auto *action : histogramMenu->actions()) {
+                if (action->text() == text)
+                    action->trigger();
+            }
+            QCoreApplication::processEvents();
+        }
+    };
+
+    triggerTwice(QStringLiteral("直方图比较..."));
+    triggerTwice(QStringLiteral("直方图匹配..."));
+    triggerTwice(QStringLiteral("直方图反向投影..."));
+    EXPECT_EQ(s_window->findChildren<HistogramCompareDialog *>().size(), 1);
+    EXPECT_EQ(s_window->findChildren<HistogramMatchDialog *>().size(), 1);
+    EXPECT_EQ(s_window->findChildren<BackProjectDialog *>().size(), 1);
+
+    for (auto *d : s_window->findChildren<QDialog *>())
+        d->close();
+    for (auto *w : s_window->findChildren<ImageWindow *>())
+        w->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, HistogramWindowsAreReusedAndUpdated)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *histogramMenu = s_window->findChild<QMenu *>("histogramMenu");
+    ASSERT_NE(histogramMenu, nullptr);
+    auto showHistograms = [histogramMenu] {
+        for (auto *action : histogramMenu->actions()) {
+            if (action->text() == "灰度直方图")
+                action->trigger();
+        }
+        QCoreApplication::processEvents();
+    };
+
+    showHistograms();
+    EXPECT_EQ(s_window->findChildren<HistogramWindow *>().size(), 3);
+
+    // Select the 20x20 background corner, then show again: the same three
+    // windows must be reused and updated to the new data
+    const QPoint start = viewer->mapImageToView(QPointF(0, 0)).toPoint();
+    const QPoint end = viewer->mapImageToView(QPointF(20, 20)).toPoint();
+    QTest::mousePress(viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(viewer, end);
+    QTest::mouseRelease(viewer, Qt::RightButton, Qt::NoModifier, end);
+    ASSERT_TRUE(viewer->hasSelection());
+
+    showHistograms();
+    EXPECT_EQ(s_window->findChildren<HistogramWindow *>().size(), 3);
+    auto *blue = s_window->findChild<HistogramWindow *>("histogramWindow_blue");
+    ASSERT_NE(blue, nullptr);
+    EXPECT_DOUBLE_EQ(blue->bins()[200], 400);  // updated to the selection
+
+    for (auto *w : s_window->findChildren<HistogramWindow *>())
+        w->close();
     QCoreApplication::processEvents();
 }
 

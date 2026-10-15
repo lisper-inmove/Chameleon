@@ -39,6 +39,7 @@ private:
     void openConvolutionDialog();
     void openGradientDialog();
     void openEdgeDialog();
+    void openNoiseDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

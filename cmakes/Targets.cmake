@@ -16,11 +16,13 @@ target_sources(chameleon_lib PRIVATE
     include/processing/filter_processor.h
     include/processing/histogram.h
     include/processing/image_io.h
+    include/processing/noise.h
     include/ui/back_project_dialog.h
     include/ui/convolution_dialog.h
     include/ui/edge_dialog.h
     include/ui/filter_panel.h
     include/ui/gradient_dialog.h
+    include/ui/noise_dialog.h
     include/ui/histogram_compare_dialog.h
     include/ui/histogram_match_dialog.h
     include/ui/histogram_window.h
@@ -34,11 +36,13 @@ target_sources(chameleon_lib PRIVATE
     src/processing/filter_processor.cc
     src/processing/histogram.cc
     src/processing/image_io.cc
+    src/processing/noise.cc
     src/ui/back_project_dialog.cc
     src/ui/convolution_dialog.cc
     src/ui/edge_dialog.cc
     src/ui/filter_panel.cc
     src/ui/gradient_dialog.cc
+    src/ui/noise_dialog.cc
     src/ui/histogram_compare_dialog.cc
     src/ui/histogram_match_dialog.cc
     src/ui/histogram_window.cc

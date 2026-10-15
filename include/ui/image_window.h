@@ -16,6 +16,8 @@ public:
     ImageWindow(const QString &title, const cv::Mat &image, QWidget *parent = nullptr);
 
     QSize imageSize() const { return m_imageSize; }
+    // Replaces title and content in place (window reuse)
+    void setImage(const QString &title, const cv::Mat &image);
 
 protected:
     void paintEvent(QPaintEvent *event) override;

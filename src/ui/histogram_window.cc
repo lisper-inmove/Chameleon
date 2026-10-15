@@ -26,6 +26,12 @@ HistogramWindow::HistogramWindow(const QString &title, const QColor &barColor,
     resize(360, 240);
 }
 
+void HistogramWindow::setBins(const std::array<double, 256> &bins)
+{
+    m_bins = bins;
+    update();
+}
+
 void HistogramWindow::paintEvent(QPaintEvent *)
 {
     QPainter p(this);

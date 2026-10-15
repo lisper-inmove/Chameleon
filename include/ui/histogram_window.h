@@ -18,6 +18,8 @@ public:
                     QWidget *parent = nullptr);
 
     const std::array<double, 256> &bins() const { return m_bins; }
+    // Updates the plotted data in place (window reuse)
+    void setBins(const std::array<double, 256> &bins);
 
 protected:
     void paintEvent(QPaintEvent *event) override;

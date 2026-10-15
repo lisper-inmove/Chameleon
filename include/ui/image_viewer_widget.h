@@ -14,6 +14,7 @@
 #include <opencv2/core.hpp>
 
 #include "processing/filter_processor.h"
+#include "processing/noise.h"
 
 namespace chameleon {
 
@@ -72,6 +73,9 @@ public:
     void applyGradient(const GradientParams &params);
     // One-shot Canny edge detection; undoable
     void applyEdgeDetection(const CannyParams &params);
+    // One-shot noise addition; undoable
+    void addSaltPepperNoise(const SaltPepperParams &params);
+    void addGaussianNoise(const GaussianNoiseParams &params);
 
 signals:
     void selectionChanged();

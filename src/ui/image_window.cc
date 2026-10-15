@@ -17,6 +17,14 @@ ImageWindow::ImageWindow(const QString &title, const cv::Mat &image, QWidget *pa
     resize(initial.expandedTo(QSize(240, 180)));
 }
 
+void ImageWindow::setImage(const QString &title, const cv::Mat &image)
+{
+    m_pixmap = pixmapFromMat(image);
+    m_imageSize = image.empty() ? QSize() : QSize(image.cols, image.rows);
+    setWindowTitle(title);
+    update();
+}
+
 void ImageWindow::paintEvent(QPaintEvent *)
 {
     QPainter p(this);

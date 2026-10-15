@@ -340,6 +340,22 @@ void ImageViewerWidget::applyEdgeDetection(const CannyParams &params)
     });
 }
 
+void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
+{
+    // A fresh random seed per invocation; repeated calls differ, undo
+    // still restores exactly
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::addSaltPepperNoise(image, params);
+    });
+}
+
+void ImageViewerWidget::addGaussianNoise(const GaussianNoiseParams &params)
+{
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::addGaussianNoise(image, params);
+    });
+}
+
 void ImageViewerWidget::applyOperation(
     const std::function<cv::Mat(const cv::Mat &)> &transform)
 {

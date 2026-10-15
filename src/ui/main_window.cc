@@ -33,6 +33,7 @@
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/gradient_dialog.h"
+#include "ui/noise_dialog.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
@@ -75,6 +76,20 @@ QString formatSize(qint64 bytes)
     if (bytes < qint64(1024) * 1024)
         return QStringLiteral("%1 KB").arg(double(bytes) / 1024.0, 0, 'f', 1);
     return QStringLiteral("%1 MB").arg(double(bytes) / 1024.0 / 1024.0, 0, 'f', 1);
+}
+
+// Toolbar popups are unique: an already-open window of the given type
+// (optionally by object name) is raised and reused instead of creating
+// another instance
+template <typename WindowT>
+WindowT *focusExisting(QWidget *parent, const QString &name = QString())
+{
+    auto *existing = parent->findChild<WindowT *>(name);
+    if (existing) {
+        existing->raise();
+        existing->activateWindow();
+    }
+    return existing;
 }
 
 // Per-item widget: thumbnail + name + close button.
@@ -361,6 +376,14 @@ void MainWindow::setupToolBar()
             this, &MainWindow::openEdgeDialog);
     toolBar->addWidget(edgeButton);
 
+    auto *noiseButton = new QToolButton(toolBar);
+    noiseButton->setText(QStringLiteral("噪声..."));
+    noiseButton->setObjectName("noiseButton");
+    noiseButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(noiseButton, &QToolButton::clicked,
+            this, &MainWindow::openNoiseDialog);
+    toolBar->addWidget(noiseButton);
+
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolBar->addWidget(spacer);
@@ -506,6 +529,11 @@ void MainWindow::showHistograms()
     // One popup window per channel: each channel is a grayscale map and
     // its histogram is the grayscale histogram of that channel
     if (source.channels() == 1) {
+        if (auto *existing = focusExisting<HistogramWindow>(
+                this, QStringLiteral("histogramWindow_gray"))) {
+            existing->setBins(computeHistogram(source, 0));
+            return;
+        }
         auto *window = new HistogramWindow(QStringLiteral("灰度直方图"),
                                            QColor(140, 140, 140),
                                            computeHistogram(source, 0), this);
@@ -526,10 +554,15 @@ void MainWindow::showHistograms()
     };
     const int count = std::min(3, source.channels());
     for (int c = 0; c < count; ++c) {
+        const QString objectName = QString::fromUtf8(channels[c].objectName);
+        if (auto *existing = focusExisting<HistogramWindow>(this, objectName)) {
+            existing->setBins(computeHistogram(source, c));
+            continue;
+        }
         auto *window = new HistogramWindow(QString::fromUtf8(channels[c].name),
                                            channels[c].color,
                                            computeHistogram(source, c), this);
-        window->setObjectName(QString::fromUtf8(channels[c].objectName));
+        window->setObjectName(objectName);
         // Cascade so the per-channel windows do not fully overlap
         window->move(pos().x() + 60 + c * 40, pos().y() + 80 + c * 40);
         window->show();
@@ -545,6 +578,8 @@ void MainWindow::compareHistograms()
                                            : m_viewer->currentImage();
     if (reference.empty())
         return;
+    if (focusExisting<HistogramCompareDialog>(this))
+        return;
     auto *dialog = new HistogramCompareDialog(
         reference,
         useSelection ? QStringLiteral("当前选区") : QStringLiteral("当前显示图"),
@@ -555,6 +590,8 @@ void MainWindow::compareHistograms()
 void MainWindow::matchHistograms()
 {
     if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<HistogramMatchDialog>(this))
         return;
     auto *dialog = new HistogramMatchDialog(AppState::instance()->images(), this);
     connect(dialog, &HistogramMatchDialog::applyRequested, this, [this, dialog] {
@@ -578,6 +615,8 @@ void MainWindow::backProjectHistograms()
                                                     : m_viewer->currentImage();
     if (target.empty())
         return;
+    if (focusExisting<BackProjectDialog>(this))
+        return;
     auto *dialog = new BackProjectDialog(AppState::instance()->images(), this);
     connect(dialog, &BackProjectDialog::computeRequested, this, [this, dialog, target] {
         const cv::Mat templateImage = dialog->currentTemplateImage();
@@ -588,11 +627,16 @@ void MainWindow::backProjectHistograms()
         const cv::Mat result = chameleon::backProjectHistogram(target, templateImage);
         if (result.empty())
             return;
-        auto *window = new ImageWindow(
-            QStringLiteral("反向投影结果:%1").arg(dialog->currentTemplateName()),
-            result, this);
-        window->setObjectName(QStringLiteral("backProjectionWindow"));
-        window->show();
+        const QString title = QStringLiteral("反向投影结果:%1")
+                                  .arg(dialog->currentTemplateName());
+        if (auto *existing = focusExisting<ImageWindow>(
+                this, QStringLiteral("backProjectionWindow"))) {
+            existing->setImage(title, result);
+        } else {
+            auto *window = new ImageWindow(title, result, this);
+            window->setObjectName(QStringLiteral("backProjectionWindow"));
+            window->show();
+        }
         statusBar()->showMessage(QStringLiteral("已生成反向投影结果"), 2500);
     });
     dialog->show();
@@ -601,6 +645,8 @@ void MainWindow::backProjectHistograms()
 void MainWindow::openConvolutionDialog()
 {
     if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<ConvolutionDialog>(this))
         return;
     auto *dialog = new ConvolutionDialog(this);
     connect(dialog, &ConvolutionDialog::applyRequested, this, [this, dialog] {
@@ -615,6 +661,8 @@ void MainWindow::openGradientDialog()
 {
     if (m_viewer->currentImage().empty())
         return;
+    if (focusExisting<GradientDialog>(this))
+        return;
     auto *dialog = new GradientDialog(this);
     connect(dialog, &GradientDialog::applyRequested, this, [this, dialog] {
         m_viewer->applyGradient(dialog->gradientParams());
@@ -628,10 +676,33 @@ void MainWindow::openEdgeDialog()
 {
     if (m_viewer->currentImage().empty())
         return;
+    if (focusExisting<EdgeDialog>(this))
+        return;
     auto *dialog = new EdgeDialog(this);
     connect(dialog, &EdgeDialog::applyRequested, this, [this, dialog] {
         m_viewer->applyEdgeDetection(dialog->cannyParams());
         statusBar()->showMessage(QStringLiteral("已应用边缘检测(Canny)"), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::openNoiseDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<NoiseDialog>(this))
+        return;
+    auto *dialog = new NoiseDialog(this);
+    connect(dialog, &NoiseDialog::addNoiseRequested, this, [this, dialog] {
+        if (dialog->saltPepperSelected())
+            m_viewer->addSaltPepperNoise(dialog->saltPepperParams());
+        else
+            m_viewer->addGaussianNoise(dialog->gaussianNoiseParams());
+        statusBar()->showMessage(QStringLiteral("已添加噪声"), 2500);
+    });
+    connect(dialog, &NoiseDialog::denoiseRequested, this, [this, dialog] {
+        m_viewer->applyConvolution(dialog->denoiseParams());
+        statusBar()->showMessage(QStringLiteral("已去噪"), 2500);
     });
     dialog->show();
 }
