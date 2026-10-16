@@ -3,6 +3,7 @@
 #include <functional>
 
 #include <QFutureWatcher>
+#include <QHash>
 #include <QPointF>
 #include <QPixmap>
 #include <QRect>
@@ -51,6 +52,16 @@ public:
     // "" clears back to the empty state
     void setImage(const QString &path);
     bool saveAs(const QString &path) const;
+
+    // When enabled, the processed state (current image, undo/redo stacks,
+    // selection) is remembered per path, so switching tabs and back
+    // restores the edits instead of re-reading the file. Images no longer
+    // in AppState's list are forgotten (see retainRememberedStates()).
+    void setRememberStatePerPath(bool enabled);
+    // Drops remembered entries for paths outside the given list
+    void retainRememberedStates(const QStringList &paths);
+    // Discards the current image's remembered edits and re-reads the file
+    void reloadImage();
 
     // Filter pipeline: params live-preview on a background thread;
     // applyFilter() bakes the preview into the image and pushes the
@@ -134,7 +145,17 @@ private:
     // pushes the previous state onto the undo stack
     void applyOperation(const std::function<cv::Mat(const cv::Mat &)> &transform);
 
+    struct RememberedState {
+        cv::Mat original;
+        cv::Mat image;
+        QStack<cv::Mat> undo;
+        QStack<cv::Mat> redo;
+        QRect selection;
+    };
+
     QString m_path;
+    bool m_rememberState = false;
+    QHash<QString, RememberedState> m_stateByPath;
     cv::Mat m_image;      // displayed image (original + active filter params)
     cv::Mat m_original;   // unfiltered source
     QPixmap m_displayPixmap;  // paint-side cache, converted from m_image

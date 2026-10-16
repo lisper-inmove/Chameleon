@@ -145,6 +145,47 @@ void ImageViewerWidget::startFilterPreview()
 
 void ImageViewerWidget::setImage(const QString &path)
 {
+    // Remember the outgoing image's processed state (only for images that
+    // are still open; a closed image is forgotten)
+    if (m_rememberState && m_status == Ready && !m_path.isEmpty()
+            && m_path != path
+            && AppState::instance()->images().contains(m_path)) {
+        m_stateByPath.insert(m_path, RememberedState{m_original, m_image,
+                                                     m_undoStack, m_redoStack,
+                                                     m_selection});
+    }
+
+    // Restore a remembered state synchronously: no decode, edits intact
+    if (m_rememberState && !path.isEmpty()) {
+        const auto it = m_stateByPath.constFind(path);
+        if (it != m_stateByPath.constEnd()) {
+            m_path = path;
+            m_pan = QPointF();
+            m_dragging = false;
+            m_roiCandidate = false;
+            m_roiDragging = false;
+            m_mouseInsideImage = false;
+            m_pendingPath.clear();
+            m_loadWatcher.setFuture(QFuture<cv::Mat>());  // cancel pending decode
+            m_original = it->original;
+            m_image = it->image;
+            m_selection = it->selection;
+            m_status = Ready;
+            resetFilterState();  // live preview params reset (also clears stacks)
+            m_undoStack = it->undo;
+            m_redoStack = it->redo;
+            emit canUndoChanged(!m_undoStack.isEmpty());
+            emit canRedoChanged(!m_redoStack.isEmpty());
+            if (!m_selection.isEmpty())
+                emit selectionChanged();
+            updateDisplayPixmap();
+            updateImageInfo();
+            alignToOrigin();
+            update();
+            return;
+        }
+    }
+
     m_path = path;
     m_pan = QPointF();
     m_dragging = false;
@@ -176,6 +217,36 @@ void ImageViewerWidget::setImage(const QString &path)
     m_loadWatcher.setFuture(QtConcurrent::run([path] {
         return normalizeTo8u(ImageIO::imreadUtf8(path.toStdString()));
     }));
+}
+
+void ImageViewerWidget::setRememberStatePerPath(bool enabled)
+{
+    m_rememberState = enabled;
+    if (!enabled)
+        m_stateByPath.clear();
+}
+
+void ImageViewerWidget::retainRememberedStates(const QStringList &paths)
+{
+    for (auto it = m_stateByPath.begin(); it != m_stateByPath.end();) {
+        if (paths.contains(it.key()))
+            ++it;
+        else
+            it = m_stateByPath.erase(it);
+    }
+}
+
+void ImageViewerWidget::reloadImage()
+{
+    if (m_path.isEmpty())
+        return;
+    // Drop the remembered edits and bypass the restore branch so the file
+    // is decoded fresh
+    m_stateByPath.remove(m_path);
+    const QString path = m_path;
+    m_path.clear();
+    m_status = NoImage;
+    setImage(path);
 }
 
 bool ImageViewerWidget::saveAs(const QString &path) const

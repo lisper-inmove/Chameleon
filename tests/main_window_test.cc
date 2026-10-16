@@ -1027,6 +1027,59 @@ TEST_F(MainWindowTest, SplitViewShowsOriginalAndProcessed)
     EXPECT_EQ(original->grab().toImage(), originalBefore);
 }
 
+TEST_F(MainWindowTest, ProcessingSurvivesTabSwitch)
+{
+    // The reported bug: process one of several open images, switch to
+    // another tab, switch back - the processing must still be there
+    const QString pathA = QDir::tempPath() + "/chameleon_tabs_a.png";
+    const QString pathB = QDir::tempPath() + "/chameleon_tabs_b.png";
+    QFile::remove(pathA);
+    QFile::remove(pathB);
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", pathA));
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", pathB));
+
+    AppState::instance()->openImages({pathA, pathB});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+    const QImage pristine = viewer->grab().toImage();
+
+    viewer->equalizeHistogram();
+    const QImage edited = viewer->grab().toImage();
+    ASSERT_NE(edited, pristine);
+
+    AppState::instance()->setCurrentIndex(1);  // switch to the other tab
+    QCoreApplication::processEvents();
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(viewer->grab().toImage(), pristine);  // untouched image
+
+    AppState::instance()->setCurrentIndex(0);  // and back
+    QCoreApplication::processEvents();
+    EXPECT_EQ(viewer->grab().toImage(), edited);  // edits restored
+
+    while (!AppState::instance()->images().isEmpty())
+        AppState::instance()->closeImage(0);
+    QFile::remove(pathA);
+    QFile::remove(pathB);
+}
+
+TEST_F(MainWindowTest, ReloadDiscardsProcessingEdits)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+    const QImage pristine = viewer->grab().toImage();
+
+    viewer->equalizeHistogram();
+    ASSERT_NE(viewer->grab().toImage(), pristine);
+
+    action("reloadAction")->trigger();
+    QCoreApplication::processEvents();
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(viewer->grab().toImage(), pristine);
+}
+
 TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)
 {
     // A single-channel source gets exactly one window

@@ -177,6 +177,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     m_originalViewer->setObjectName("originalViewer");
     m_viewer = new ImageViewerWidget(this);
     m_viewer->setObjectName("imageViewer");
+    // Keep each image's edits across tab switches
+    m_viewer->setRememberStatePerPath(true);
 
     auto makePane = [this](const QString &title, const char *labelName,
                            ImageViewerWidget *viewer) {
@@ -765,9 +767,11 @@ void MainWindow::reloadCurrentImage()
     const QString path = AppState::instance()->currentImage();
     if (path.isEmpty())
         return;
-    // Back to the initial view state: Fit zoom, pan reset, re-decode
+    // Back to the initial view state: Fit zoom, pan reset, re-decode;
+    // processing edits are discarded on both sides
     AppState::instance()->setZoomMode(AppState::Fit);
-    m_viewer->setImage(path);
+    m_viewer->reloadImage();
+    m_originalViewer->setImage(path);
 }
 
 void MainWindow::saveImageAs()
@@ -789,6 +793,8 @@ void MainWindow::saveImageAs()
 
 void MainWindow::rebuildThumbnails()
 {
+    // Closed images must not keep remembered edits
+    m_viewer->retainRememberedStates(AppState::instance()->images());
     m_thumbnailList->clear();
     const QStringList images = AppState::instance()->images();
     for (int i = 0; i < images.size(); ++i) {

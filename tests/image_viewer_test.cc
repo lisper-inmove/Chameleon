@@ -687,6 +687,67 @@ TEST_F(ImageViewerTest, ApplySharpeningChangesImageAndUndoRestores)
     EXPECT_EQ(m_viewer->grab().toImage(), before);
 }
 
+TEST_F(ImageViewerTest, RememberedStateSurvivesTabSwitch)
+{
+    const QString pathA = QDir::tempPath() + "/chameleon_tab_a.png";
+    const QString pathB = QDir::tempPath() + "/chameleon_tab_b.png";
+    QFile::remove(pathA);
+    QFile::remove(pathB);
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", pathA));
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", pathB));
+
+    // The AppState image list gates the remembering (a closed image is
+    // forgotten)
+    AppState::instance()->openImages({pathA, pathB});
+    m_viewer->setRememberStatePerPath(true);
+
+    m_viewer->setImage(pathA);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage pristine = m_viewer->grab().toImage();
+    m_viewer->equalizeHistogram();
+    const QImage edited = m_viewer->grab().toImage();
+    ASSERT_NE(edited, pristine);
+
+    // Switch away and back: the edits are restored synchronously
+    m_viewer->setImage(pathB);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    m_viewer->setImage(pathA);
+    EXPECT_EQ(m_viewer->status(), ImageViewerWidget::Ready);  // no reload
+    EXPECT_EQ(m_viewer->grab().toImage(), edited);
+
+    // The undo stack survived too
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), pristine);
+
+    // Closing an image forgets its remembered edits
+    AppState::instance()->closeImage(0);  // removes pathA
+    m_viewer->retainRememberedStates(AppState::instance()->images());
+    m_viewer->setImage(pathA);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(m_viewer->grab().toImage(), pristine);  // fresh decode
+
+    while (!AppState::instance()->images().isEmpty())
+        AppState::instance()->closeImage(0);
+    QFile::remove(pathA);
+    QFile::remove(pathB);
+}
+
+TEST_F(ImageViewerTest, ReloadImageDiscardsProcessingEdits)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setRememberStatePerPath(true);
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage pristine = m_viewer->grab().toImage();
+
+    m_viewer->equalizeHistogram();
+    ASSERT_NE(m_viewer->grab().toImage(), pristine);
+
+    m_viewer->reloadImage();
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(m_viewer->grab().toImage(), pristine);
+}
+
 TEST_F(ImageViewerTest, SaveAsWritesPng)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
