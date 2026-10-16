@@ -20,7 +20,9 @@
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QToolButton>
 #include <QtTest/QTest>
 
@@ -124,8 +126,20 @@ TEST_F(MainWindowTest, HasMenusToolbarDocksAndViewer)
     EXPECT_TRUE(titles.contains("帮助(&H)"));
 
     EXPECT_NE(s_window->findChild<QListWidget *>("thumbnailList"), nullptr);
-    EXPECT_NE(s_window->findChild<QDockWidget *>("leftDock"), nullptr);
-    EXPECT_NE(s_window->findChild<QDockWidget *>("rightDock"), nullptr);
+    // One merged side panel: thumbnails and the filter controls live in
+    // tabs of a single dock
+    EXPECT_NE(s_window->findChild<QDockWidget *>("panelDock"), nullptr);
+    auto *tabs = s_window->findChild<QTabWidget *>("panelTabs");
+    ASSERT_NE(tabs, nullptr);
+    ASSERT_EQ(tabs->count(), 2);
+    EXPECT_EQ(tabs->tabText(0).toStdString(), "缩略图");
+    EXPECT_EQ(tabs->tabText(1).toStdString(), "控制面板");
+    EXPECT_EQ(s_window->findChildren<QDockWidget *>().size(), 1);
+    // The display area is split: original on the left, processed on the right
+    auto *splitter = s_window->findChild<QSplitter *>("viewSplitter");
+    ASSERT_NE(splitter, nullptr);
+    EXPECT_EQ(splitter->count(), 2);
+    EXPECT_NE(s_window->findChild<ImageViewerWidget *>("originalViewer"), nullptr);
     EXPECT_NE(s_window->findChild<ImageViewerWidget *>("imageViewer"), nullptr);
     EXPECT_NE(action("openAction"), nullptr);
     EXPECT_NE(action("saveAction"), nullptr);
@@ -197,8 +211,8 @@ TEST_F(MainWindowTest, ViewerRendersImagePixels)
 
 TEST_F(MainWindowTest, DockCloseSyncsMenuToggle)
 {
-    auto *leftDock = s_window->findChild<QDockWidget *>("leftDock");
-    auto *toggle = action("leftDockToggle");
+    auto *leftDock = s_window->findChild<QDockWidget *>("panelDock");
+    auto *toggle = action("panelDockToggle");
     ASSERT_NE(leftDock, nullptr);
     ASSERT_NE(toggle, nullptr);
     EXPECT_TRUE(toggle->isChecked());
@@ -987,6 +1001,30 @@ TEST_F(MainWindowTest, SharpenDialogExposesParamsAndSharpness)
 
     dialog->close();
     QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, SplitViewShowsOriginalAndProcessed)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *original = s_window->findChild<ImageViewerWidget *>("originalViewer");
+    auto *processed = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_NE(original, nullptr);
+    ASSERT_NE(processed, nullptr);
+    ASSERT_TRUE(waitForStatus(original, ImageViewerWidget::Ready));
+    ASSERT_TRUE(waitForStatus(processed, ImageViewerWidget::Ready));
+
+    // Freshly loaded both sides show the original image
+    EXPECT_EQ(original->imagePath(), processed->imagePath());
+
+    // After processing only the right side changes; the left keeps the
+    // original
+    const QImage originalBefore = original->grab().toImage();
+    const QImage processedBefore = processed->grab().toImage();
+    processed->equalizeHistogram();
+    QCoreApplication::processEvents();
+    EXPECT_NE(processed->grab().toImage(), processedBefore);
+    EXPECT_EQ(original->grab().toImage(), originalBefore);
 }
 
 TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)

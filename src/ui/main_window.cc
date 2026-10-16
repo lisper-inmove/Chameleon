@@ -15,7 +15,9 @@
 #include <QMouseEvent>
 #include <QSettings>
 #include <QStatusBar>
+#include <QSplitter>
 #include <QStyleFactory>
+#include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -169,9 +171,35 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setupToolBar();
     setupStatusBar();
 
+    // Display split: the loaded original on the left, the processed
+    // result on the right; freshly loaded both sides show the original
+    m_originalViewer = new ImageViewerWidget(this);
+    m_originalViewer->setObjectName("originalViewer");
     m_viewer = new ImageViewerWidget(this);
     m_viewer->setObjectName("imageViewer");
-    setCentralWidget(m_viewer);
+
+    auto makePane = [this](const QString &title, const char *labelName,
+                           ImageViewerWidget *viewer) {
+        auto *pane = new QWidget(this);
+        auto *layout = new QVBoxLayout(pane);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        auto *label = new QLabel(title, pane);
+        label->setObjectName(labelName);
+        label->setAlignment(Qt::AlignCenter);
+        layout->addWidget(label);
+        layout->addWidget(viewer, 1);
+        return pane;
+    };
+    auto *splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setObjectName("viewSplitter");
+    splitter->addWidget(makePane(QStringLiteral("原图"), "originalPaneLabel",
+                                 m_originalViewer));
+    splitter->addWidget(makePane(QStringLiteral("处理结果"), "processedPaneLabel",
+                                 m_viewer));
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 1);
+    setCentralWidget(splitter);
 
     auto *state = AppState::instance();
     connect(state, &AppState::currentIndexChanged, this, &MainWindow::onCurrentImageChanged);
@@ -257,17 +285,11 @@ void MainWindow::setupMenus()
 
     // QDockWidget::toggleViewAction() keeps its check state in sync with
     // the dock's visibility, including closes via the title bar
-    auto *leftToggle = m_leftDock->toggleViewAction();
-    leftToggle->setText(QStringLiteral("缩略图栏"));
-    leftToggle->setObjectName("leftDockToggle");
-    leftToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
-    viewMenu->addAction(leftToggle);
-
-    auto *rightToggle = m_rightDock->toggleViewAction();
-    rightToggle->setText(QStringLiteral("侧边栏"));
-    rightToggle->setObjectName("rightDockToggle");
-    rightToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
-    viewMenu->addAction(rightToggle);
+    auto *panelToggle = m_panelDock->toggleViewAction();
+    panelToggle->setText(QStringLiteral("面板"));
+    panelToggle->setObjectName("panelDockToggle");
+    panelToggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
+    viewMenu->addAction(panelToggle);
 
     viewMenu->addSeparator();
 
@@ -416,21 +438,18 @@ void MainWindow::setupDocks()
     connect(m_thumbnailList, &QListWidget::currentRowChanged, this,
             [this](int row) { AppState::instance()->setCurrentIndex(row); });
 
-    m_leftDock = new QDockWidget(QStringLiteral("缩略图"), this);
-    m_leftDock->setObjectName("leftDock");
-    m_leftDock->setWidget(m_thumbnailList);
-    addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
+    // One side panel hosting the thumbnails and the filter controls as
+    // tabs of a single dock
+    m_filterPanel = new FilterPanel(this);
+    auto *tabs = new QTabWidget(this);
+    tabs->setObjectName("panelTabs");
+    tabs->addTab(m_thumbnailList, QStringLiteral("缩略图"));
+    tabs->addTab(m_filterPanel, QStringLiteral("控制面板"));
 
-    auto *rightPanel = new QWidget(this);
-    auto *rightLayout = new QVBoxLayout(rightPanel);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    m_filterPanel = new FilterPanel(rightPanel);
-    rightLayout->addWidget(m_filterPanel);
-
-    m_rightDock = new QDockWidget(QStringLiteral("面板"), this);
-    m_rightDock->setObjectName("rightDock");
-    m_rightDock->setWidget(rightPanel);
-    addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
+    m_panelDock = new QDockWidget(QStringLiteral("面板"), this);
+    m_panelDock->setObjectName("panelDock");
+    m_panelDock->setWidget(tabs);
+    addDockWidget(Qt::LeftDockWidgetArea, m_panelDock);
 }
 
 void MainWindow::setupStatusBar()
@@ -861,6 +880,7 @@ void MainWindow::onCurrentImageChanged()
     // background tab shifts indexes but must not reload the current image
     if (path != m_shownImagePath) {
         m_viewer->setImage(path);
+        m_originalViewer->setImage(path);
         m_shownImagePath = path;
     }
     const bool hasImage = AppState::instance()->hasImage();

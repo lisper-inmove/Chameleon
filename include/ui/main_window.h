@@ -48,10 +48,10 @@ private:
     void updateZoomUi();
     void onCurrentImageChanged();
 
-    ImageViewerWidget *m_viewer = nullptr;
+    ImageViewerWidget *m_viewer = nullptr;        // processed side (right)
+    ImageViewerWidget *m_originalViewer = nullptr;  // original side (left)
     QListWidget *m_thumbnailList = nullptr;
-    QDockWidget *m_leftDock = nullptr;
-    QDockWidget *m_rightDock = nullptr;
+    QDockWidget *m_panelDock = nullptr;
     QLabel *m_statusFileName = nullptr;
     QLabel *m_statusSize = nullptr;
     QLabel *m_statusFormat = nullptr;

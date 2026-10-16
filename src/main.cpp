@@ -26,7 +26,7 @@ int main(int argc, char *argv[])  // NOLINT(bugprone-exception-escape) - Qt main
     chameleon::MainWindow window;
     window.setWindowTitle(QString::fromStdString(config.title()));
     window.resize(config.windowWidth(), config.windowHeight());
-    window.show();
+    window.showMaximized();
 
     return app.exec();
 }
