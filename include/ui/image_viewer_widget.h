@@ -14,7 +14,10 @@
 
 #include <opencv2/core.hpp>
 
+#include "app/app_state.h"
+#include "processing/binary.h"
 #include "processing/filter_processor.h"
+#include "processing/geometry.h"
 #include "processing/noise.h"
 
 namespace chameleon {
@@ -35,9 +38,21 @@ public:
     QPointF panOffset() const { return m_pan; }
     QPointF mouseImagePos() const { return m_mouseImagePos; }
     bool mouseInsideImage() const { return m_mouseInsideImage; }
+    // Grayscale value under the cursor; -1 when outside the image
+    int mouseGrayValue() const { return m_mouseGray; }
 
     // Maps a point in image pixel coordinates to view coordinates
     QPointF mapImageToView(const QPointF &imagePos) const;
+
+    // By default zoom follows AppState's shared state. With independent
+    // zoom enabled this viewer keeps its own mode/factor (remembered per
+    // image path), so the original and processed panes zoom separately.
+    void setIndependentZoom(bool enabled);
+    bool independentZoom() const { return m_independentZoom; }
+    AppState::ZoomMode zoomMode() const;
+    double zoomFactor() const;
+    void setZoomMode(AppState::ZoomMode mode);
+    void setZoomFactor(double factor);
 
     // Region of interest, in image pixel coordinates; empty when none
     QRect selection() const { return m_selection; }
@@ -86,9 +101,16 @@ public:
     void applyEdgeDetection(const CannyParams &params);
     // One-shot Laplacian sharpening; undoable
     void applySharpening(const SharpenParams &params);
+    // One-shot threshold segmentation; undoable. Returns the threshold
+    // cv::threshold computed for the automatic methods (params.thresh for
+    // the fixed method).
+    double applyThreshold(const ThresholdParams &params);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);
+    // Geometric transform (may change the size): the result becomes the
+    // new original base; undoable through the base-change stack
+    void applyGeometry(const GeometryParams &params);
 
 signals:
     void selectionChanged();
@@ -121,6 +143,7 @@ private:
     void updateMousePosition(const QPointF &viewPos);
     void updateDisplayPixmap();
     void updateImageInfo();
+    void rememberLocalZoom();
 
     struct FilterParams {
         double brightness = 0.0;
@@ -144,20 +167,48 @@ private:
     // Applies a one-shot transform (whole image or selection only) and
     // pushes the previous state onto the undo stack
     void applyOperation(const std::function<cv::Mat(const cv::Mat &)> &transform);
+    // Applies a size-changing transform to the original: the result becomes
+    // the new source/displayed image and a base checkpoint is pushed.
+    // With preserveViewScale the on-screen magnification is kept (Fit mode
+    // is pinned to the previous scale) instead of re-fitting the new canvas.
+    void applyGeometryOperation(const std::function<cv::Mat(const cv::Mat &)> &transform,
+                                bool preserveViewScale = false);
+    bool canUndoAny() const;
+    bool canRedoAny() const;
+
+    // Checkpoint of a base-changing geometry operation
+    struct GeometryCheckpoint {
+        cv::Mat source;
+        cv::Mat image;
+        QRect selection;
+    };
 
     struct RememberedState {
+        cv::Mat source;
         cv::Mat original;
         cv::Mat image;
         QStack<cv::Mat> undo;
         QStack<cv::Mat> redo;
+        QStack<GeometryCheckpoint> baseUndo;
+        QStack<GeometryCheckpoint> baseRedo;
         QRect selection;
     };
 
     QString m_path;
+    bool m_independentZoom = false;
+    AppState::ZoomMode m_localZoomMode = AppState::Fit;
+    double m_localZoomFactor = 1.0;
+    struct LocalZoom {
+        AppState::ZoomMode mode = AppState::Fit;
+        double factor = 1.0;
+    };
+    QHash<QString, LocalZoom> m_localZoomByPath;
     bool m_rememberState = false;
     QHash<QString, RememberedState> m_stateByPath;
+    cv::Mat m_sourceImage;  // pristine loaded image; toolbar operations
+                            // always transform THIS, never a previous result
     cv::Mat m_image;      // displayed image (original + active filter params)
-    cv::Mat m_original;   // unfiltered source
+    cv::Mat m_original;   // current base: filter-preview source and undo anchor
     QPixmap m_displayPixmap;  // paint-side cache, converted from m_image
     Status m_status = NoImage;
     QPointF m_pan;
@@ -165,6 +216,7 @@ private:
     QPointF m_lastMousePos;
     QPointF m_mouseImagePos;
     bool m_mouseInsideImage = false;
+    int m_mouseGray = -1;
     bool m_dragging = false;
     // Right-button interaction: press starts a candidate; movement beyond
     // the drag threshold turns it into a ROI rubber band, a release
@@ -187,6 +239,8 @@ private:
     bool m_filterBusy = false;
     QStack<cv::Mat> m_undoStack;
     QStack<cv::Mat> m_redoStack;
+    QStack<GeometryCheckpoint> m_baseUndoStack;
+    QStack<GeometryCheckpoint> m_baseRedoStack;
 };
 
 } // namespace chameleon

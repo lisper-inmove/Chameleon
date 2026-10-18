@@ -12,7 +12,11 @@
 #include <QtTest/QTest>
 
 #include "app/app_state.h"
+#include <opencv2/imgproc.hpp>
+
+#include "processing/binary.h"
 #include "processing/filter_processor.h"
+#include "processing/geometry.h"
 #include "ui/image_viewer_widget.h"
 
 using chameleon::AppState;
@@ -32,6 +36,14 @@ bool waitForStatus(ImageViewerWidget *viewer, ImageViewerWidget::Status status,
         QThread::msleep(5);
     }
     return viewer->status() == status;
+}
+
+// On-screen scale of one image pixel (independent of the zoom mode)
+double displayedScale(ImageViewerWidget *viewer)
+{
+    const QPointF a = viewer->mapImageToView(QPointF(0, 0));
+    const QPointF b = viewer->mapImageToView(QPointF(100, 0));
+    return (b.x() - a.x()) / 100.0;
 }
 
 } // namespace
@@ -119,6 +131,27 @@ TEST_F(ImageViewerTest, ImageOriginAlignsWithRulerOriginOnLoad)
     EXPECT_NEAR(origin.y(), 20.0, 0.5);
 }
 
+TEST_F(ImageViewerTest, FitModeAlwaysAnchorsToTheCanvasTopLeft)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    EXPECT_EQ(AppState::instance()->zoomMode(), AppState::Fit);
+
+    // Leaving Fit centres the image (Actual); returning to Fit must put
+    // the origin back at the canvas top-left, not centre it again
+    AppState::instance()->setZoomMode(AppState::Actual);
+    QCoreApplication::processEvents();
+    const QPointF centered = m_viewer->mapImageToView(QPointF(0, 0));
+    EXPECT_GT(centered.x(), 44.0);  // not at the top-left any more
+
+    AppState::instance()->setZoomMode(AppState::Fit);
+    QCoreApplication::processEvents();
+    const QPointF origin = m_viewer->mapImageToView(QPointF(0, 0));
+    EXPECT_NEAR(origin.x(), 44.0, 0.5);
+    EXPECT_NEAR(origin.y(), 20.0, 0.5);
+}
+
 TEST_F(ImageViewerTest, WheelZoomKeepsCursorImagePointStationary)
 {
     AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
@@ -164,7 +197,7 @@ TEST_F(ImageViewerTest, PanIsClampedWhenImageSmallerThanViewport)
     QTest::mouseMove(m_viewer, QPoint(2000, 300));
     QTest::mouseRelease(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(2000, 300));
     EXPECT_NEAR(m_viewer->panOffset().x(), 58.0, 0.5);
-    EXPECT_NEAR(m_viewer->panOffset().y(), -53.75, 0.5);
+    EXPECT_NEAR(m_viewer->panOffset().y(), 0.0, 0.5);
 
     QTest::mousePress(m_viewer, Qt::LeftButton, Qt::NoModifier, QPoint(400, 300));
     QTest::mouseMove(m_viewer, QPoint(-1200, 300));
@@ -196,12 +229,12 @@ TEST_F(ImageViewerTest, MousePositionTracksImageCoordinates)
     AppState::instance()->setZoomMode(AppState::Actual);
     QCoreApplication::processEvents();
 
-    // Pan kept from load-time Fit alignment: image top-left at Actual
-    // = (102, 56.25), so view (400, 300) -> image pos (298, 243.75)
+    // Fit anchoring leaves pan at zero: image top-left at Actual
+    // = (102, 110), so view (400, 300) -> image pos (298, 190)
     QTest::mouseMove(m_viewer, QPoint(400, 300));
     EXPECT_TRUE(m_viewer->mouseInsideImage());
     EXPECT_NEAR(m_viewer->mouseImagePos().x(), 298.0, 0.5);
-    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 243.75, 0.5);
+    EXPECT_NEAR(m_viewer->mouseImagePos().y(), 190.0, 0.5);
 
     QTest::mouseMove(m_viewer, QPoint(10, 10));  // outside the image
     EXPECT_FALSE(m_viewer->mouseInsideImage());
@@ -746,6 +779,236 @@ TEST_F(ImageViewerTest, ReloadImageDiscardsProcessingEdits)
     m_viewer->reloadImage();
     ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
     EXPECT_EQ(m_viewer->grab().toImage(), pristine);
+}
+
+TEST_F(ImageViewerTest, ApplyThresholdChangesImageAndUndoRestores)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage before = m_viewer->grab().toImage();
+
+    chameleon::ThresholdParams params;
+    params.thresh = 128;
+    params.maxval = 255;
+    params.type = chameleon::ThresholdType::Binary;
+    m_viewer->applyThreshold(params);
+    EXPECT_NE(m_viewer->grab().toImage(), before);
+
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), before);
+}
+
+TEST_F(ImageViewerTest, ToolbarOperationsAlwaysStartFromTheOriginal)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    // A second viewer gets the same image and thresholds it directly
+    ImageViewerWidget other;
+    other.resize(800, 600);
+    other.show();
+    other.setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(&other, ImageViewerWidget::Ready));
+    QCoreApplication::processEvents();
+
+    chameleon::ThresholdParams threshold;
+    threshold.thresh = 128;
+    other.applyThreshold(threshold);
+    const QImage direct = other.grab().toImage();
+
+    // The main viewer blurs first, then thresholds: the blur must be
+    // discarded because toolbar operations always start from the original
+    chameleon::BlurParams blur;
+    blur.type = chameleon::BlurType::Gaussian;
+    blur.kernelSize = 7;
+    m_viewer->applyConvolution(blur);
+    const QImage blurred = m_viewer->grab().toImage();
+    m_viewer->applyThreshold(threshold);
+    EXPECT_EQ(m_viewer->grab().toImage(), direct);
+
+    // Undo brings the blurred state back for comparison
+    m_viewer->undo();
+    EXPECT_EQ(m_viewer->grab().toImage(), blurred);
+}
+
+TEST_F(ImageViewerTest, SelectionOperationStartsFromTheOriginal)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const QImage pristine = m_viewer->grab().toImage();
+
+    chameleon::BlurParams blur;
+    blur.type = chameleon::BlurType::Gaussian;
+    blur.kernelSize = 7;
+    m_viewer->applyConvolution(blur);
+    ASSERT_NE(m_viewer->grab().toImage(), pristine);
+
+    // Threshold only the 20x20 top-left corner: the rest of the image
+    // must show the ORIGINAL (the blur is discarded)
+    const QPoint start = m_viewer->mapImageToView(QPointF(0, 0)).toPoint();
+    const QPoint end = m_viewer->mapImageToView(QPointF(20, 20)).toPoint();
+    QTest::mousePress(m_viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(m_viewer, end);
+    QTest::mouseRelease(m_viewer, Qt::RightButton, Qt::NoModifier, end);
+    ASSERT_TRUE(m_viewer->hasSelection());
+
+    chameleon::ThresholdParams threshold;
+    threshold.thresh = 128;
+    m_viewer->applyThreshold(threshold);
+    const QImage after = m_viewer->grab().toImage();
+
+    // (50, 70) sits on the lime rectangle's border, where the blur
+    // visibly mixed colors: the original value must show through
+    const QPoint outside = m_viewer->mapImageToView(QPointF(50, 70)).toPoint();
+    EXPECT_EQ(after.pixelColor(outside), pristine.pixelColor(outside));
+    const QPoint inside = m_viewer->mapImageToView(QPointF(10, 10)).toPoint();
+    EXPECT_NE(after.pixelColor(inside), pristine.pixelColor(inside));
+}
+
+TEST_F(ImageViewerTest, OperationsUseTheOriginalAfterTabSwitch)
+{
+    const QString pathA = QDir::tempPath() + "/chameleon_orig_a.png";
+    const QString pathB = QDir::tempPath() + "/chameleon_orig_b.png";
+    QFile::remove(pathA);
+    QFile::remove(pathB);
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", pathA));
+    ASSERT_TRUE(QFile::copy(TEST_DATA_DIR "/test_image.png", pathB));
+
+    AppState::instance()->openImages({pathA, pathB});
+    m_viewer->setRememberStatePerPath(true);
+
+    m_viewer->setImage(pathA);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    chameleon::BlurParams blur;
+    blur.type = chameleon::BlurType::Gaussian;
+    blur.kernelSize = 7;
+    m_viewer->applyConvolution(blur);
+    const QImage blurredOnce = m_viewer->grab().toImage();
+
+    m_viewer->setImage(pathB);
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    m_viewer->setImage(pathA);
+    EXPECT_EQ(m_viewer->grab().toImage(), blurredOnce);
+
+    // Applying the same blur again starts from the original, so the
+    // result is identical (not a doubly-blurred image)
+    m_viewer->applyConvolution(blur);
+    EXPECT_EQ(m_viewer->grab().toImage(), blurredOnce);
+
+    while (!AppState::instance()->images().isEmpty())
+        AppState::instance()->closeImage(0);
+    QFile::remove(pathA);
+    QFile::remove(pathB);
+}
+
+TEST_F(ImageViewerTest, MouseGrayValueTracksThePixel)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    AppState::instance()->setZoomMode(AppState::Actual);
+
+    // The test image background is BGR (200, 120, 30)
+    const cv::Mat pixel(1, 1, CV_8UC3, cv::Scalar(200, 120, 30));
+    cv::Mat grayPixel;
+    cv::cvtColor(pixel, grayPixel, cv::COLOR_BGR2GRAY);
+    const int expected = grayPixel.at<uchar>(0, 0);
+
+    QTest::mouseMove(m_viewer, m_viewer->mapImageToView(QPointF(10, 10)).toPoint());
+    EXPECT_TRUE(m_viewer->mouseInsideImage());
+    EXPECT_EQ(m_viewer->mouseGrayValue(), expected);
+
+    QTest::mouseMove(m_viewer, QPoint(800, 590));  // outside the image
+    EXPECT_FALSE(m_viewer->mouseInsideImage());
+}
+
+TEST_F(ImageViewerTest, CropToSelectionBecomesTheNewBaseAndUndoes)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    const QPoint start = m_viewer->mapImageToView(QPointF(0, 0)).toPoint();
+    const QPoint end = m_viewer->mapImageToView(QPointF(20, 20)).toPoint();
+    QTest::mousePress(m_viewer, Qt::RightButton, Qt::NoModifier, start);
+    QTest::mouseMove(m_viewer, end);
+    QTest::mouseRelease(m_viewer, Qt::RightButton, Qt::NoModifier, end);
+    ASSERT_TRUE(m_viewer->hasSelection());
+
+    chameleon::GeometryParams params;
+    params.operation = chameleon::GeometryOperation::Crop;
+    m_viewer->applyGeometry(params);
+    EXPECT_NEAR(AppState::instance()->imageInfo().width(), 20, 2);
+    EXPECT_NEAR(AppState::instance()->imageInfo().height(), 20, 2);
+    EXPECT_FALSE(m_viewer->hasSelection());
+
+    // Undo restores the previous base
+    m_viewer->undo();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
+}
+
+TEST_F(ImageViewerTest, GeometryRotationChangesSizeAndUndoes)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+
+    chameleon::GeometryParams params;
+    params.operation = chameleon::GeometryOperation::Rotate;
+    params.angle = 90;
+    m_viewer->applyGeometry(params);
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
+
+    m_viewer->undo();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
+    m_viewer->redo();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
+}
+
+TEST_F(ImageViewerTest, Rotate90ThenMinus90RestoresTheOriginalImage)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const cv::Mat original = m_viewer->currentImage().clone();
+
+    chameleon::GeometryParams params;
+    params.operation = chameleon::GeometryOperation::Rotate;
+    params.angle = 90;
+    m_viewer->applyGeometry(params);
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
+
+    params.angle = -90;
+    m_viewer->applyGeometry(params);
+    ASSERT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
+    const cv::Mat restored = m_viewer->currentImage();
+    ASSERT_EQ(restored.size(), original.size());
+    cv::Mat diff;
+    cv::absdiff(restored, original, diff);
+    EXPECT_EQ(cv::countNonZero(diff.reshape(1)), 0);
+}
+
+TEST_F(ImageViewerTest, RotationKeepsTheDisplayScale)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    AppState::instance()->setZoomMode(AppState::Fit);
+    const double before = displayedScale(m_viewer);
+    EXPECT_GT(before, 0.0);
+
+    chameleon::GeometryParams params;
+    params.operation = chameleon::GeometryOperation::Rotate;
+    params.angle = 90;
+    m_viewer->applyGeometry(params);
+
+    // The canvas is 400x640 now: re-fitting to the window would shrink the
+    // image, so rotation must pin the previously displayed scale instead
+    ASSERT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
+    EXPECT_NEAR(displayedScale(m_viewer), before, 1e-6);
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

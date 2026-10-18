@@ -41,6 +41,9 @@ private:
     void openEdgeDialog();
     void openNoiseDialog();
     void openSharpenDialog();
+    void openThresholdDialog();
+    void openConnectedComponentsDialog();
+    void openGeometryDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
     void rebuildRecentFilesMenu();

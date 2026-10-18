@@ -32,11 +32,14 @@
 #include "processing/image_io.h"
 #include "ui/filter_panel.h"
 #include "ui/back_project_dialog.h"
+#include "ui/connected_components_dialog.h"
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
+#include "ui/geometry_dialog.h"
 #include "ui/gradient_dialog.h"
 #include "ui/noise_dialog.h"
 #include "ui/sharpen_dialog.h"
+#include "ui/threshold_dialog.h"
 #include "ui/histogram_compare_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/histogram_window.h"
@@ -175,6 +178,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     // result on the right; freshly loaded both sides show the original
     m_originalViewer = new ImageViewerWidget(this);
     m_originalViewer->setObjectName("originalViewer");
+    // The two panes zoom independently: the original pane keeps its own
+    // zoom instead of following the processed pane's shared state
+    m_originalViewer->setIndependentZoom(true);
     m_viewer = new ImageViewerWidget(this);
     m_viewer->setObjectName("imageViewer");
     // Keep each image's edits across tab switches
@@ -416,6 +422,30 @@ void MainWindow::setupToolBar()
     connect(sharpenButton, &QToolButton::clicked,
             this, &MainWindow::openSharpenDialog);
     toolBar->addWidget(sharpenButton);
+
+    auto *thresholdButton = new QToolButton(toolBar);
+    thresholdButton->setText(QStringLiteral("二值..."));
+    thresholdButton->setObjectName("thresholdButton");
+    thresholdButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(thresholdButton, &QToolButton::clicked,
+            this, &MainWindow::openThresholdDialog);
+    toolBar->addWidget(thresholdButton);
+
+    auto *connectedComponentsButton = new QToolButton(toolBar);
+    connectedComponentsButton->setText(QStringLiteral("连通域..."));
+    connectedComponentsButton->setObjectName("connectedComponentsButton");
+    connectedComponentsButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(connectedComponentsButton, &QToolButton::clicked,
+            this, &MainWindow::openConnectedComponentsDialog);
+    toolBar->addWidget(connectedComponentsButton);
+
+    auto *geometryButton = new QToolButton(toolBar);
+    geometryButton->setText(QStringLiteral("几何..."));
+    geometryButton->setObjectName("geometryButton");
+    geometryButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(geometryButton, &QToolButton::clicked,
+            this, &MainWindow::openGeometryDialog);
+    toolBar->addWidget(geometryButton);
 
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -762,6 +792,74 @@ void MainWindow::openSharpenDialog()
     dialog->show();
 }
 
+void MainWindow::openThresholdDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<ThresholdDialog>(this))
+        return;
+    auto *dialog = new ThresholdDialog(this);
+    connect(dialog, &ThresholdDialog::applyRequested, this, [this, dialog] {
+        const double computed = m_viewer->applyThreshold(dialog->thresholdParams());
+        dialog->setComputedThreshold(computed);
+        statusBar()->showMessage(QStringLiteral("已应用阈值化分割"), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::openConnectedComponentsDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<ConnectedComponentsDialog>(this))
+        return;
+    auto *dialog = new ConnectedComponentsDialog(this);
+    connect(dialog, &ConnectedComponentsDialog::computeRequested, this, [this, dialog] {
+        const cv::Mat source = m_viewer->hasSelection() ? m_viewer->selectionImage()
+                                                        : m_viewer->currentImage();
+        if (source.empty())
+            return;
+        const auto result = chameleon::connectedComponents(
+            source, dialog->connectedComponentsParams());
+        if (result.labels.empty())
+            return;
+        dialog->setStats(result);
+
+        const QString title = QStringLiteral("连通域标记(%1 个组件)")
+                                  .arg(std::max(0, result.count - 1));
+        const cv::Mat colored = chameleon::colorizeLabels(result.labels, true);
+        if (auto *existing = focusExisting<ImageWindow>(
+                this, QStringLiteral("connectedComponentsWindow"))) {
+            existing->setImage(title, colored);
+        } else {
+            auto *window = new ImageWindow(title, colored, this);
+            window->setObjectName(QStringLiteral("connectedComponentsWindow"));
+            window->show();
+        }
+        statusBar()->showMessage(QStringLiteral("已生成连通域标记"), 2500);
+    });
+    dialog->show();
+}
+
+void MainWindow::openGeometryDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<GeometryDialog>(this))
+        return;
+    auto *dialog = new GeometryDialog(this);
+    connect(dialog, &GeometryDialog::applyRequested, this, [this, dialog] {
+        m_viewer->applyGeometry(dialog->geometryParams());
+        // The image size may have changed: refresh the defaults
+        const cv::Mat current = m_viewer->currentImage();
+        dialog->setDefaults(QSize(current.cols, current.rows), m_viewer->selection());
+        statusBar()->showMessage(QStringLiteral("已应用几何变换"), 2500);
+    });
+    const cv::Mat current = m_viewer->currentImage();
+    dialog->setDefaults(QSize(current.cols, current.rows), m_viewer->selection());
+    dialog->show();
+}
+
 void MainWindow::reloadCurrentImage()
 {
     const QString path = AppState::instance()->currentImage();
@@ -771,6 +869,7 @@ void MainWindow::reloadCurrentImage()
     // processing edits are discarded on both sides
     AppState::instance()->setZoomMode(AppState::Fit);
     m_viewer->reloadImage();
+    m_originalViewer->setZoomMode(AppState::Fit);
     m_originalViewer->setImage(path);
 }
 
@@ -793,8 +892,9 @@ void MainWindow::saveImageAs()
 
 void MainWindow::rebuildThumbnails()
 {
-    // Closed images must not keep remembered edits
+    // Closed images must not keep remembered edits (or zoom state)
     m_viewer->retainRememberedStates(AppState::instance()->images());
+    m_originalViewer->retainRememberedStates(AppState::instance()->images());
     m_thumbnailList->clear();
     const QStringList images = AppState::instance()->images();
     for (int i = 0; i < images.size(); ++i) {

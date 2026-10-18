@@ -24,6 +24,7 @@
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QToolButton>
+#include <QWheelEvent>
 #include <QtTest/QTest>
 
 #include "app/app_state.h"
@@ -31,9 +32,12 @@
 #include "ui/histogram_compare_dialog.h"
 #include "ui/back_project_dialog.h"
 #include "ui/convolution_dialog.h"
+#include "ui/connected_components_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
 #include "ui/sharpen_dialog.h"
+#include "ui/threshold_dialog.h"
+#include "ui/geometry_dialog.h"
 #include "ui/gradient_dialog.h"
 #include "ui/histogram_match_dialog.h"
 #include "ui/image_window.h"
@@ -44,10 +48,13 @@
 using chameleon::AppState;
 using chameleon::HistogramCompareDialog;
 using chameleon::BackProjectDialog;
+using chameleon::ConnectedComponentsDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::EdgeDialog;
 using chameleon::NoiseDialog;
 using chameleon::SharpenDialog;
+using chameleon::ThresholdDialog;
+using chameleon::GeometryDialog;
 using chameleon::GradientDialog;
 using chameleon::HistogramMatchDialog;
 using chameleon::ImageWindow;
@@ -69,6 +76,14 @@ bool waitForStatus(ImageViewerWidget *viewer, ImageViewerWidget::Status status,
         QThread::msleep(5);
     }
     return viewer->status() == status;
+}
+
+// On-screen scale of one image pixel (independent of the zoom mode)
+double displayedScale(ImageViewerWidget *viewer)
+{
+    const QPointF a = viewer->mapImageToView(QPointF(0, 0));
+    const QPointF b = viewer->mapImageToView(QPointF(100, 0));
+    return (b.x() - a.x()) / 100.0;
 }
 
 } // namespace
@@ -1080,6 +1095,224 @@ TEST_F(MainWindowTest, ReloadDiscardsProcessingEdits)
     EXPECT_EQ(viewer->grab().toImage(), pristine);
 }
 
+TEST_F(MainWindowTest, ThresholdDialogExposesParamsAndApplies)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *thresholdButton = s_window->findChild<QToolButton *>("thresholdButton");
+    ASSERT_NE(thresholdButton, nullptr);
+    thresholdButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ThresholdDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *threshSpin = dialog->findChild<QDoubleSpinBox *>("thresholdValueSpin");
+    auto *maxvalSpin = dialog->findChild<QDoubleSpinBox *>("thresholdMaxvalSpin");
+    auto *typeCombo = dialog->findChild<QComboBox *>("thresholdTypeCombo");
+    auto *applyButton = dialog->findChild<QPushButton *>("thresholdApplyButton");
+    ASSERT_NE(threshSpin, nullptr);
+    ASSERT_NE(maxvalSpin, nullptr);
+    ASSERT_NE(typeCombo, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    EXPECT_EQ(typeCombo->count(), 5);
+
+    // All three parameters are settable
+    threshSpin->setValue(120);
+    maxvalSpin->setValue(200);
+    typeCombo->setCurrentIndex(1);  // 反二值化
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, ThresholdDialogExposesAutoMethods)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *thresholdButton = s_window->findChild<QToolButton *>("thresholdButton");
+    ASSERT_NE(thresholdButton, nullptr);
+    thresholdButton->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ThresholdDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *methodCombo = dialog->findChild<QComboBox *>("thresholdMethodCombo");
+    auto *threshSpin = dialog->findChild<QDoubleSpinBox *>("thresholdValueSpin");
+    auto *blockSpin = dialog->findChild<QSpinBox *>("thresholdBlockSizeSpin");
+    auto *cSpin = dialog->findChild<QDoubleSpinBox *>("thresholdCSpin");
+    auto *computedLabel = dialog->findChild<QLabel *>("thresholdComputedLabel");
+    auto *applyButton = dialog->findChild<QPushButton *>("thresholdApplyButton");
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(threshSpin, nullptr);
+    ASSERT_NE(blockSpin, nullptr);
+    ASSERT_NE(cSpin, nullptr);
+    ASSERT_NE(computedLabel, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    EXPECT_EQ(methodCombo->count(), 4);
+
+    // Fixed (default): the manual threshold is editable
+    EXPECT_TRUE(threshSpin->isEnabled());
+    EXPECT_FALSE(blockSpin->isEnabled());
+
+    // Otsu: the manual threshold is disabled, apply reports the computed one
+    methodCombo->setCurrentIndex(1);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(threshSpin->isEnabled());
+    EXPECT_FALSE(blockSpin->isEnabled());
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(computedLabel->text().contains(QStringLiteral("计算阈值")));
+
+    // Adaptive: block size and C are editable
+    methodCombo->setCurrentIndex(3);
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(blockSpin->isEnabled());
+    EXPECT_TRUE(cSpin->isEnabled());
+    EXPECT_FALSE(threshSpin->isEnabled());
+    const QImage beforeAdaptive = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), beforeAdaptive);
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, ConnectedComponentsDialogComputesAndShows)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("connectedComponentsButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ConnectedComponentsDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *connectivityCombo = dialog->findChild<QComboBox *>("ccConnectivityCombo");
+    auto *methodCombo = dialog->findChild<QComboBox *>("ccMethodCombo");
+    auto *computeButton = dialog->findChild<QPushButton *>("ccComputeButton");
+    auto *statsLabel = dialog->findChild<QLabel *>("ccStatsLabel");
+    ASSERT_NE(connectivityCombo, nullptr);
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(computeButton, nullptr);
+    ASSERT_NE(statsLabel, nullptr);
+    EXPECT_EQ(connectivityCombo->count(), 2);
+    EXPECT_EQ(methodCombo->count(), 2);
+
+    // Plain labeling: the colorized map opens in the shared result window
+    computeButton->click();
+    QCoreApplication::processEvents();
+    auto *resultWindow = s_window->findChild<ImageWindow *>("connectedComponentsWindow");
+    ASSERT_NE(resultWindow, nullptr);
+    EXPECT_EQ(resultWindow->imageSize(), QSize(640, 400));
+    EXPECT_TRUE(statsLabel->text().contains(QStringLiteral("组件数")));
+
+    // With statistics: areas and boxes are reported
+    methodCombo->setCurrentIndex(1);
+    QCoreApplication::processEvents();
+    computeButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(statsLabel->text().contains(QStringLiteral("面积")));
+    EXPECT_EQ(s_window->findChildren<ImageWindow *>("connectedComponentsWindow").size(), 1);
+
+    resultWindow->close();
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, GeometryDialogAppliesRotateAndUndoes)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("geometryButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<GeometryDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *modeCombo = dialog->findChild<QComboBox *>("geometryModeCombo");
+    auto *angleSpin = dialog->findChild<QDoubleSpinBox *>("geometryAngleSpin");
+    auto *applyButton = dialog->findChild<QPushButton *>("geometryApplyButton");
+    ASSERT_NE(modeCombo, nullptr);
+    ASSERT_NE(angleSpin, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    EXPECT_EQ(modeCombo->count(), 6);
+
+    // Rotate 90 degrees: the dimensions swap
+    modeCombo->setCurrentIndex(1);  // 旋转
+    QCoreApplication::processEvents();
+    angleSpin->setValue(90);
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
+
+    action("undoAction")->trigger();
+    QCoreApplication::processEvents();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, Quick270RotatesByMinusNinetyDegrees)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("geometryButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<GeometryDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *angleSpin = dialog->findChild<QDoubleSpinBox *>("geometryAngleSpin");
+    auto *quick270 = dialog->findChild<QPushButton *>("geometryQuick270Button");
+    auto *applyButton = dialog->findChild<QPushButton *>("geometryApplyButton");
+    ASSERT_NE(angleSpin, nullptr);
+    ASSERT_NE(quick270, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+
+    // 90 then 270 (= -90) must come back to the original orientation
+    angleSpin->setValue(90);
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
+
+    quick270->click();
+    EXPECT_DOUBLE_EQ(angleSpin->value(), 270.0);  // not clamped to 180
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_EQ(AppState::instance()->imageInfo(), QSize(640, 400));
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
 TEST_F(MainWindowTest, GrayImageOpensSingleHistogramWindow)
 {
     // A single-channel source gets exactly one window
@@ -1216,4 +1449,36 @@ TEST_F(MainWindowTest, ClosingBackgroundTabKeepsCurrentImageAndPan)
               std::string(TEST_DATA_DIR "/test_image.png"));
     // The current image must not be reloaded (pan position preserved)
     EXPECT_EQ(viewer->panOffset(), panBefore);
+}
+
+TEST_F(MainWindowTest, ZoomingOnePaneDoesNotAffectTheOther)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *original = s_window->findChild<ImageViewerWidget *>("originalViewer");
+    auto *processed = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_NE(original, nullptr);
+    ASSERT_NE(processed, nullptr);
+    ASSERT_TRUE(waitForStatus(original, ImageViewerWidget::Ready));
+    ASSERT_TRUE(waitForStatus(processed, ImageViewerWidget::Ready));
+
+    const double originalBefore = displayedScale(original);
+
+    // Zoom the processed pane through the shared state (toolbar path):
+    // the original pane must keep its own scale
+    AppState::instance()->setZoomFactor(2.0);
+    QCoreApplication::processEvents();
+    EXPECT_NEAR(displayedScale(processed), 2.0, 1e-6);
+    EXPECT_NEAR(displayedScale(original), originalBefore, 1e-6);
+
+    // Wheel-zoom over the original pane: only the original pane changes
+    const QPoint center = original->rect().center();
+    QWheelEvent wheelIn(center, original->mapToGlobal(center), QPoint(),
+                        QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+                        Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(original, &wheelIn);
+    QCoreApplication::processEvents();
+    EXPECT_GT(displayedScale(original), originalBefore);
+    EXPECT_NEAR(displayedScale(processed), 2.0, 1e-6);
+    EXPECT_DOUBLE_EQ(AppState::instance()->zoomFactor(), 2.0) << "shared zoom untouched";
 }

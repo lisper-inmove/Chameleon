@@ -9,6 +9,7 @@
 #include <QtConcurrent/QtConcurrent>
 
 #include <algorithm>
+#include <utility>
 
 #include "app/app_state.h"
 #include "processing/filter_processor.h"
@@ -56,6 +57,8 @@ ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
     setFocusPolicy(Qt::ClickFocus);
 
     connect(AppState::instance(), &AppState::zoomChanged, this, [this] {
+        if (m_independentZoom)
+            return;  // local zoom state; shared changes do not apply here
         // Returning to Fit resets panning
         if (AppState::instance()->zoomMode() == AppState::Fit)
             m_pan = QPointF();
@@ -70,12 +73,14 @@ ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
             return;
         const cv::Mat mat = m_loadWatcher.result();
         if (mat.empty()) {
+            m_sourceImage = cv::Mat();
             m_image = cv::Mat();
             m_original = cv::Mat();
             updateDisplayPixmap();
             updateImageInfo();
             m_status = Error;
         } else {
+            m_sourceImage = mat;
             m_image = mat;
             m_original = mat;
             updateDisplayPixmap();
@@ -85,6 +90,8 @@ ImageViewerWidget::ImageViewerWidget(QWidget *parent) : QWidget(parent)
             alignToOrigin();
         }
         resetFilterState();
+        m_baseUndoStack.clear();
+        m_baseRedoStack.clear();
         update();
     });
 
@@ -143,16 +150,87 @@ void ImageViewerWidget::startFilterPreview()
     }));
 }
 
+void ImageViewerWidget::setIndependentZoom(bool enabled)
+{
+    m_independentZoom = enabled;
+    if (!enabled)
+        m_localZoomByPath.clear();
+    update();
+}
+
+AppState::ZoomMode ImageViewerWidget::zoomMode() const
+{
+    if (m_independentZoom)
+        return m_localZoomMode;
+    return AppState::instance()->zoomMode();
+}
+
+double ImageViewerWidget::zoomFactor() const
+{
+    if (m_independentZoom)
+        return m_localZoomMode == AppState::Custom ? m_localZoomFactor : 1.0;
+    return AppState::instance()->zoomFactorForCurrent();
+}
+
+void ImageViewerWidget::setZoomMode(AppState::ZoomMode mode)
+{
+    if (!m_independentZoom) {
+        AppState::instance()->setZoomMode(mode);
+        return;
+    }
+    m_localZoomMode = mode;
+    if (mode == AppState::Fit)
+        m_pan = QPointF();  // Fit is anchored top-left; drop the old pan
+    rememberLocalZoom();
+    update();
+}
+
+void ImageViewerWidget::setZoomFactor(double factor)
+{
+    const double clamped = std::clamp(factor, kMinScale, kMaxScale);
+    if (!m_independentZoom) {
+        AppState::instance()->setZoomFactor(clamped);
+        return;
+    }
+    m_localZoomFactor = clamped;
+    m_localZoomMode = AppState::Custom;
+    rememberLocalZoom();
+    update();
+}
+
+void ImageViewerWidget::rememberLocalZoom()
+{
+    if (!m_independentZoom || m_path.isEmpty())
+        return;
+    m_localZoomByPath.insert(m_path, LocalZoom{m_localZoomMode, m_localZoomFactor});
+}
+
 void ImageViewerWidget::setImage(const QString &path)
 {
+    // Independent zoom is remembered per image, like the processed pane's
+    // AppState zoom: switching tabs must not lose the original pane's zoom
+    if (m_independentZoom && path != m_path) {
+        rememberLocalZoom();
+        const auto it = m_localZoomByPath.constFind(path);
+        if (it != m_localZoomByPath.constEnd()) {
+            m_localZoomMode = it->mode;
+            m_localZoomFactor = it->factor;
+        } else {
+            m_localZoomMode = AppState::Fit;
+            m_localZoomFactor = 1.0;
+        }
+    }
+
     // Remember the outgoing image's processed state (only for images that
     // are still open; a closed image is forgotten)
     if (m_rememberState && m_status == Ready && !m_path.isEmpty()
             && m_path != path
             && AppState::instance()->images().contains(m_path)) {
-        m_stateByPath.insert(m_path, RememberedState{m_original, m_image,
-                                                     m_undoStack, m_redoStack,
-                                                     m_selection});
+        m_stateByPath.insert(m_path, RememberedState{
+                                          m_sourceImage, m_original, m_image,
+                                          m_undoStack, m_redoStack,
+                                          m_baseUndoStack, m_baseRedoStack,
+                                          m_selection});
     }
 
     // Restore a remembered state synchronously: no decode, edits intact
@@ -167,6 +245,7 @@ void ImageViewerWidget::setImage(const QString &path)
             m_mouseInsideImage = false;
             m_pendingPath.clear();
             m_loadWatcher.setFuture(QFuture<cv::Mat>());  // cancel pending decode
+            m_sourceImage = it->source;
             m_original = it->original;
             m_image = it->image;
             m_selection = it->selection;
@@ -174,6 +253,8 @@ void ImageViewerWidget::setImage(const QString &path)
             resetFilterState();  // live preview params reset (also clears stacks)
             m_undoStack = it->undo;
             m_redoStack = it->redo;
+            m_baseUndoStack = it->baseUndo;
+            m_baseRedoStack = it->baseRedo;
             emit canUndoChanged(!m_undoStack.isEmpty());
             emit canRedoChanged(!m_redoStack.isEmpty());
             if (!m_selection.isEmpty())
@@ -199,12 +280,15 @@ void ImageViewerWidget::setImage(const QString &path)
     if (path.isEmpty()) {
         m_pendingPath.clear();
         m_loadWatcher.setFuture(QFuture<cv::Mat>());  // cancel pending decode
+        m_sourceImage = cv::Mat();
         m_image = cv::Mat();
         m_original = cv::Mat();
         updateDisplayPixmap();
         updateImageInfo();
         m_status = NoImage;
         resetFilterState();
+        m_baseUndoStack.clear();
+        m_baseRedoStack.clear();
         update();
         return;
     }
@@ -234,15 +318,24 @@ void ImageViewerWidget::retainRememberedStates(const QStringList &paths)
         else
             it = m_stateByPath.erase(it);
     }
+    for (auto it = m_localZoomByPath.begin(); it != m_localZoomByPath.end();) {
+        if (paths.contains(it.key()))
+            ++it;
+        else
+            it = m_localZoomByPath.erase(it);
+    }
 }
 
 void ImageViewerWidget::reloadImage()
 {
     if (m_path.isEmpty())
         return;
-    // Drop the remembered edits and bypass the restore branch so the file
-    // is decoded fresh
+    // Drop the remembered edits (and the per-image zoom) and bypass the
+    // restore branch so the file is decoded fresh
     m_stateByPath.remove(m_path);
+    m_localZoomByPath.remove(m_path);
+    m_localZoomMode = AppState::Fit;
+    m_localZoomFactor = 1.0;
     const QString path = m_path;
     m_path.clear();
     m_status = NoImage;
@@ -418,6 +511,17 @@ void ImageViewerWidget::applySharpening(const SharpenParams &params)
     });
 }
 
+double ImageViewerWidget::applyThreshold(const ThresholdParams &params)
+{
+    // applyOperation invokes the transform synchronously, so reading the
+    // captured value afterwards is safe
+    double computed = params.thresh;
+    applyOperation([params, &computed](const cv::Mat &image) {
+        return chameleon::applyThreshold(image, params, &computed);
+    });
+    return computed;
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo
@@ -434,21 +538,129 @@ void ImageViewerWidget::addGaussianNoise(const GaussianNoiseParams &params)
     });
 }
 
+void ImageViewerWidget::applyGeometry(const GeometryParams &params)
+{
+    if (m_status != Ready || m_sourceImage.empty())
+        return;
+    switch (params.operation) {
+    case GeometryOperation::Crop: {
+        if (!hasSelection())
+            return;
+        const cv::Rect rect = selectionRect();
+        if (rect.width <= 0 || rect.height <= 0)
+            return;
+        applyGeometryOperation([rect](const cv::Mat &source) {
+            return source(rect).clone();
+        });
+        break;
+    }
+    case GeometryOperation::Rotate:
+        // Rotation must not zoom the view: the rotated canvas usually has
+        // another aspect ratio, and a Fit refit would visibly rescale it
+        applyGeometryOperation(
+            [angle = params.angle](const cv::Mat &source) {
+                return chameleon::rotateImage(source, angle);
+            },
+            true);
+        break;
+    case GeometryOperation::Flip:
+        applyGeometryOperation([direction = params.flip](const cv::Mat &source) {
+            return chameleon::flipImage(source, direction);
+        });
+        break;
+    case GeometryOperation::Resize:
+        applyGeometryOperation([width = params.width, height = params.height,
+                                method = params.resample](const cv::Mat &source) {
+            return chameleon::resizeImage(source, width, height, method);
+        });
+        break;
+    case GeometryOperation::Perspective:
+        applyGeometryOperation([quad = params.quad](const cv::Mat &source) {
+            return chameleon::perspectiveCorrect(source, quad);
+        });
+        break;
+    case GeometryOperation::Canvas:
+        applyGeometryOperation([width = params.width, height = params.height](
+                                   const cv::Mat &source) {
+            return chameleon::adjustCanvas(source, width, height);
+        });
+        break;
+    }
+}
+
+void ImageViewerWidget::applyGeometryOperation(
+    const std::function<cv::Mat(const cv::Mat &)> &transform, bool preserveViewScale)
+{
+    // Capture the displayed magnification before the image is replaced
+    const bool wasFit = zoomMode() == AppState::Fit;
+    const double scaleBefore = wasFit ? effectiveScale() : 1.0;
+    const cv::Size sizeBefore = m_sourceImage.size();
+
+    cv::Mat result;
+    try {
+        result = transform(m_sourceImage);
+    } catch (const cv::Exception &) {
+        return;
+    }
+    if (result.empty())
+        return;
+
+    m_baseUndoStack.push(GeometryCheckpoint{m_sourceImage, m_image, m_selection});
+    while (m_baseUndoStack.size() > 10)
+        m_baseUndoStack.removeFirst();
+    m_baseRedoStack.clear();
+
+    m_sourceImage = result;
+    m_original = result;
+    m_image = std::move(result);
+    if (!m_selection.isEmpty()) {
+        m_selection = QRect();
+        emit selectionChanged();
+    }
+    if (preserveViewScale && wasFit && m_image.size() != sizeBefore) {
+        // Leave Fit for a fixed factor at the previous scale; re-centre
+        m_pan = QPointF();
+        setZoomFactor(scaleBefore);
+    }
+    resetFilterState();  // filter params and image-level history belong to the old base
+    updateDisplayPixmap();
+    updateImageInfo();
+    update();
+    emit filterPreviewChanged();
+    emit canUndoChanged(true);
+    emit canRedoChanged(false);
+}
+
+bool ImageViewerWidget::canUndoAny() const
+{
+    return !m_undoStack.isEmpty() || !m_baseUndoStack.isEmpty();
+}
+
+bool ImageViewerWidget::canRedoAny() const
+{
+    return !m_redoStack.isEmpty() || !m_baseRedoStack.isEmpty();
+}
+
 void ImageViewerWidget::applyOperation(
     const std::function<cv::Mat(const cv::Mat &)> &transform)
 {
     if (m_status != Ready || m_image.empty())
         return;
 
+    // Toolbar operations always transform the pristine original, never a
+    // previous result: applying another operation replaces the displayed
+    // image instead of compounding
+    if (m_sourceImage.empty())
+        return;
     cv::Mat result;
     try {
         const cv::Rect rect = selectionRect();
         if (rect.width > 0 && rect.height > 0) {
-            // Replace only the selected region
-            result = m_image.clone();
-            transform(m_image(rect)).copyTo(result(rect));
+            // Replace only the selected region of the original
+            result = m_sourceImage.clone();
+            transform(m_sourceImage(rect)).copyTo(result(rect));
         } else {
-            result = transform(m_image);
+            result = transform(m_sourceImage);
         }
     } catch (const cv::Exception &) {
         return;  // unsupported input; leave the image untouched
@@ -476,8 +688,26 @@ void ImageViewerWidget::applyOperation(
 
 void ImageViewerWidget::undo()
 {
-    if (m_status != Ready || m_undoStack.isEmpty())
+    if (m_status != Ready)
         return;
+    if (m_undoStack.isEmpty()) {
+        if (m_baseUndoStack.isEmpty())
+            return;
+        m_baseRedoStack.push(GeometryCheckpoint{m_sourceImage, m_image, m_selection});
+        const GeometryCheckpoint state = m_baseUndoStack.pop();
+        m_sourceImage = state.source;
+        m_original = state.image;
+        m_image = state.image;
+        m_selection = state.selection;
+        resetFilterState();
+        updateDisplayPixmap();
+        updateImageInfo();
+        emit selectionChanged();
+        emit canUndoChanged(canUndoAny());
+        emit canRedoChanged(true);
+        update();
+        return;
+    }
     m_redoStack.push(m_original.clone());
     m_original = m_undoStack.pop();
     m_params = {};
@@ -488,14 +718,32 @@ void ImageViewerWidget::undo()
     update();
     emit filterPreviewChanged();
     emit filterParamsReset();
-    emit canUndoChanged(!m_undoStack.isEmpty());
+    emit canUndoChanged(canUndoAny());
     emit canRedoChanged(true);
 }
 
 void ImageViewerWidget::redo()
 {
-    if (m_status != Ready || m_redoStack.isEmpty())
+    if (m_status != Ready)
         return;
+    if (m_redoStack.isEmpty()) {
+        if (m_baseRedoStack.isEmpty())
+            return;
+        m_baseUndoStack.push(GeometryCheckpoint{m_sourceImage, m_image, m_selection});
+        const GeometryCheckpoint state = m_baseRedoStack.pop();
+        m_sourceImage = state.source;
+        m_original = state.image;
+        m_image = state.image;
+        m_selection = state.selection;
+        resetFilterState();
+        updateDisplayPixmap();
+        updateImageInfo();
+        emit selectionChanged();
+        emit canUndoChanged(true);
+        emit canRedoChanged(canRedoAny());
+        update();
+        return;
+    }
     m_undoStack.push(m_original.clone());
     m_original = m_redoStack.pop();
     m_params = {};
@@ -507,7 +755,7 @@ void ImageViewerWidget::redo()
     emit filterPreviewChanged();
     emit filterParamsReset();
     emit canUndoChanged(true);
-    emit canRedoChanged(!m_redoStack.isEmpty());
+    emit canRedoChanged(canRedoAny());
 }
 
 QRectF ImageViewerWidget::canvasRect() const
@@ -520,12 +768,11 @@ double ImageViewerWidget::effectiveScale() const
 {
     if (m_image.empty())
         return 1.0;
-    const auto *state = AppState::instance();
-    switch (state->zoomMode()) {
+    switch (zoomMode()) {
     case AppState::Actual:
         return 1.0;
     case AppState::Custom:
-        return state->zoomFactorForCurrent();
+        return zoomFactor();
     case AppState::Fit:
     default: {
         const QRectF canvas = canvasRect();
@@ -541,6 +788,11 @@ QPointF ImageViewerWidget::imageTopLeft() const
 {
     const double s = effectiveScale();
     const QRectF canvas = canvasRect();
+    if (zoomMode() == AppState::Fit) {
+        // Fit never centres: the image is anchored to the canvas top-left
+        // (any pan nudges it within the leftover space)
+        return QPointF(canvas.left() + m_pan.x(), canvas.top() + m_pan.y());
+    }
     return QPointF(canvas.left() + (canvas.width() - m_image.cols * s) / 2.0 + m_pan.x(),
                    canvas.top() + (canvas.height() - m_image.rows * s) / 2.0 + m_pan.y());
 }
@@ -558,6 +810,15 @@ void ImageViewerWidget::clampPan()
         return;
     const double s = effectiveScale();
     const QRectF canvas = canvasRect();
+    if (zoomMode() == AppState::Fit) {
+        // Top-left anchored: pan moves within the leftover space only, so
+        // the image never leaves the canvas
+        const double slackX = std::max(0.0, canvas.width() - m_image.cols * s);
+        const double slackY = std::max(0.0, canvas.height() - m_image.rows * s);
+        m_pan.setX(std::clamp(m_pan.x(), 0.0, slackX));
+        m_pan.setY(std::clamp(m_pan.y(), 0.0, slackY));
+        return;
+    }
     const double rangeX = std::abs(m_image.cols * s - canvas.width()) / 2.0;
     const double rangeY = std::abs(m_image.rows * s - canvas.height()) / 2.0;
     m_pan.setX(std::clamp(m_pan.x(), -rangeX, rangeX));
@@ -568,6 +829,10 @@ void ImageViewerWidget::alignToOrigin()
 {
     if (m_image.empty())
         return;
+    if (zoomMode() == AppState::Fit) {
+        m_pan = QPointF();  // the top-left anchor already coincides
+        return;
+    }
     const double s = effectiveScale();
     const QRectF canvas = canvasRect();
     m_pan = QPointF(-(canvas.width() - m_image.cols * s) / 2.0,
@@ -579,6 +844,7 @@ void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
     m_lastMousePos = viewPos;
     if (m_status != Ready) {
         m_mouseInsideImage = false;
+        m_mouseGray = -1;
         return;
     }
     const double s = effectiveScale();
@@ -587,8 +853,31 @@ void ImageViewerWidget::updateMousePosition(const QPointF &viewPos)
     m_mouseInsideImage = canvasRect().contains(viewPos)
             && img.x() >= 0 && img.y() >= 0
             && img.x() < m_image.cols && img.y() < m_image.rows;
-    if (m_mouseInsideImage)
+    if (m_mouseInsideImage) {
         m_mouseImagePos = img;
+        const int x = std::clamp(int(img.x()), 0, m_image.cols - 1);
+        const int y = std::clamp(int(img.y()), 0, m_image.rows - 1);
+        switch (m_image.channels()) {
+        case 1:
+            m_mouseGray = m_image.at<uchar>(y, x);
+            break;
+        case 3: {
+            const cv::Vec3b p = m_image.at<cv::Vec3b>(y, x);
+            m_mouseGray = cvRound(0.299 * p[2] + 0.587 * p[1] + 0.114 * p[0]);
+            break;
+        }
+        case 4: {
+            const cv::Vec4b p = m_image.at<cv::Vec4b>(y, x);
+            m_mouseGray = cvRound(0.299 * p[2] + 0.587 * p[1] + 0.114 * p[0]);
+            break;
+        }
+        default:
+            m_mouseGray = -1;
+            break;
+        }
+    } else {
+        m_mouseGray = -1;
+    }
     update();
 }
 
@@ -683,9 +972,10 @@ void ImageViewerWidget::paintEvent(QPaintEvent *)
 
     // Mouse position readout: image coordinates near the cursor
     if (m_mouseInsideImage) {
-        const QString text = QStringLiteral("x=%1, y=%2")
+        const QString text = QStringLiteral("x=%1, y=%2, 灰度=%3")
                 .arg(qRound(m_mouseImagePos.x()))
-                .arg(qRound(m_mouseImagePos.y()));
+                .arg(qRound(m_mouseImagePos.y()))
+                .arg(m_mouseGray);
         const QFontMetricsF metrics(p.font());
         const QRectF box(m_lastMousePos.x() + 14, m_lastMousePos.y() + 14,
                          metrics.horizontalAdvance(text) + 8, metrics.height() + 6);
@@ -715,14 +1005,13 @@ void ImageViewerWidget::wheelEvent(QWheelEvent *event)
     // Ignore purely horizontal wheel/trackpad swipes
     if (event->angleDelta().y() == 0)
         return;
-    auto *state = AppState::instance();
     const double oldScale = effectiveScale();
     // Capture the top-left BEFORE the zoom state changes; the anchor math
     // below needs the old layout
     const QPointF tl = imageTopLeft();
     const double factor = event->angleDelta().y() > 0 ? 1.15 : 1 / 1.15;
     const double newScale = std::clamp(oldScale * factor, kMinScale, kMaxScale);
-    state->setZoomFactor(newScale);
+    setZoomFactor(newScale);  // local when independent, shared otherwise
 
     // Keep the image point under the cursor stationary
     const QPointF mouse = event->position();
@@ -818,9 +1107,8 @@ void ImageViewerWidget::mouseDoubleClickEvent(QMouseEvent *event)
 {
     if (m_status != Ready)
         return;
-    auto *state = AppState::instance();
-    state->setZoomMode(state->zoomMode() == AppState::Fit
-                           ? AppState::Actual : AppState::Fit);
+    setZoomMode(zoomMode() == AppState::Fit ? AppState::Actual
+                                            : AppState::Fit);
     event->accept();
 }
 
@@ -834,6 +1122,7 @@ void ImageViewerWidget::leaveEvent(QEvent *event)
 {
     QWidget::leaveEvent(event);
     m_mouseInsideImage = false;
+    m_mouseGray = -1;
     update();
 }
 
