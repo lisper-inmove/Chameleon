@@ -105,6 +105,13 @@ public:
     // cv::threshold computed for the automatic methods (params.thresh for
     // the fixed method).
     double applyThreshold(const ThresholdParams &params);
+    // One-shot contour detection + drawing (cv::findContours /
+    // cv::drawContours); undoable. Returns the per-contour measurements.
+    std::vector<ContourInfo> applyContours(const ContourParams &params);
+    // One-shot contour fitting (cv::fitEllipse / fitLine / approxPolyDP)
+    // drawn over the contours; undoable. Returns the measurements and fits.
+    ContourFitResult applyContourFit(const ContourParams &contourParams,
+                                     const ContourFitParams &fitParams);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);

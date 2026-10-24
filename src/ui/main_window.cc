@@ -33,6 +33,7 @@
 #include "ui/filter_panel.h"
 #include "ui/back_project_dialog.h"
 #include "ui/connected_components_dialog.h"
+#include "ui/contour_dialog.h"
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/geometry_dialog.h"
@@ -439,6 +440,14 @@ void MainWindow::setupToolBar()
             this, &MainWindow::openConnectedComponentsDialog);
     toolBar->addWidget(connectedComponentsButton);
 
+    auto *contourButton = new QToolButton(toolBar);
+    contourButton->setText(QStringLiteral("轮廓..."));
+    contourButton->setObjectName("contourButton");
+    contourButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(contourButton, &QToolButton::clicked,
+            this, &MainWindow::openContourDialog);
+    toolBar->addWidget(contourButton);
+
     auto *geometryButton = new QToolButton(toolBar);
     geometryButton->setText(QStringLiteral("几何..."));
     geometryButton->setObjectName("geometryButton");
@@ -838,6 +847,46 @@ void MainWindow::openConnectedComponentsDialog()
         }
         statusBar()->showMessage(QStringLiteral("已生成连通域标记"), 2500);
     });
+    dialog->show();
+}
+
+void MainWindow::openContourDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<ContourDialog>(this))
+        return;
+    auto *dialog = new ContourDialog(this);
+    connect(dialog, &ContourDialog::applyRequested, this, [this, dialog] {
+        const auto infos = m_viewer->applyContours(dialog->contourParams());
+        dialog->setContourInfos(infos);
+        statusBar()->showMessage(
+            QStringLiteral("检测到 %1 个轮廓").arg(infos.size()), 2500);
+    });
+    connect(dialog, &ContourDialog::fitRequested, this,
+            [this, dialog](ContourFitType type) {
+                const auto result = m_viewer->applyContourFit(
+                    dialog->contourParams(), dialog->contourFitParams(type));
+                dialog->setContourInfos(result.contourInfos);
+                dialog->setContourFits(result.fits, type);
+                QString name;
+                switch (type) {
+                case ContourFitType::Ellipse:
+                    name = QStringLiteral("椭圆拟合");
+                    break;
+                case ContourFitType::Line:
+                    name = QStringLiteral("直线拟合");
+                    break;
+                case ContourFitType::Polygon:
+                    name = QStringLiteral("多边形逼近");
+                    break;
+                }
+                statusBar()->showMessage(
+                    QStringLiteral("已应用%1(%2 个轮廓)")
+                        .arg(name)
+                        .arg(result.fits.size()),
+                    2500);
+            });
     dialog->show();
 }
 

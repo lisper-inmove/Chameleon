@@ -21,6 +21,7 @@ target_sources(chameleon_lib PRIVATE
     include/processing/noise.h
     include/ui/back_project_dialog.h
     include/ui/connected_components_dialog.h
+    include/ui/contour_dialog.h
     include/ui/convolution_dialog.h
     include/ui/edge_dialog.h
     include/ui/filter_panel.h
@@ -47,6 +48,7 @@ target_sources(chameleon_lib PRIVATE
     src/processing/noise.cc
     src/ui/back_project_dialog.cc
     src/ui/connected_components_dialog.cc
+    src/ui/contour_dialog.cc
     src/ui/convolution_dialog.cc
     src/ui/edge_dialog.cc
     src/ui/filter_panel.cc

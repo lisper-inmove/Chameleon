@@ -56,6 +56,8 @@
 - [ ] 灰度化、反色
 - [x] 阈值化分割(二值处理;固定阈值(5 种类型)/ 大津法 / 三角法 / 自适应阈值(blockSize、C、均值/高斯),自动法显示计算出的阈值)
 - [x] 连通组件标记(connectedComponents / WithStats;4/8 邻域,彩色标记图 + 面积/包围盒/质心统计)
+- [x] 轮廓发现(findContours:检索模式 / 近似方法 / 偏移可调;drawContours 绘制,线宽 / 线型 / 仅最大轮廓;轮廓编号 + contourArea / arcLength / boundingRect 列表;二值阈值 / Otsu / 反相,支持选区,可撤销)
+- [x] 轮廓拟合(fitEllipse / fitLine(距离类型、C、reps、aeps)/ approxPolyDP(epsilon、闭合);每种拟合一个独立按钮,全部参数可配置,拟合结果列表)
 - [x] 模糊:均值 / 高斯 / 中值(卷积对话框,参数可调,支持选区,可撤销)
 - [x] 双边滤波/边缘保留滤波(bilateralFilter;d/SigmaColor/SigmaSpace/边界可调,在卷积对话框)
 - [x] 方向模糊:水平 / 垂直 / 对角线(filter2D 方向核,核大小可调)

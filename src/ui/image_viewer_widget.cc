@@ -522,6 +522,34 @@ double ImageViewerWidget::applyThreshold(const ThresholdParams &params)
     return computed;
 }
 
+std::vector<ContourInfo> ImageViewerWidget::applyContours(
+    const ContourParams &params)
+{
+    // applyOperation transforms synchronously, so the captured infos are
+    // valid when it returns
+    std::vector<ContourInfo> infos;
+    applyOperation([params, &infos](const cv::Mat &image) {
+        const ContourResult result =
+            chameleon::findAndDrawContours(image, params);
+        infos = result.infos;
+        return result.image;
+    });
+    return infos;
+}
+
+ContourFitResult ImageViewerWidget::applyContourFit(
+    const ContourParams &contourParams, const ContourFitParams &fitParams)
+{
+    // applyOperation transforms synchronously, so the captured result is
+    // valid when it returns
+    ContourFitResult result;
+    applyOperation([&contourParams, &fitParams, &result](const cv::Mat &image) {
+        result = chameleon::findAndFitContours(image, contourParams, fitParams);
+        return result.image;
+    });
+    return result;
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo

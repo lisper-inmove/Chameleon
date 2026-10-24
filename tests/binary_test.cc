@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include "processing/binary.h"
 
@@ -8,6 +11,11 @@ using chameleon::AdaptiveThresholdMethod;
 using chameleon::colorizeLabels;
 using chameleon::connectedComponents;
 using chameleon::ConnectedComponentsParams;
+using chameleon::ContourFitParams;
+using chameleon::ContourFitType;
+using chameleon::ContourParams;
+using chameleon::findAndDrawContours;
+using chameleon::findAndFitContours;
 using chameleon::applyThreshold;
 using chameleon::ThresholdMethod;
 using chameleon::ThresholdParams;
@@ -393,4 +401,413 @@ TEST(BinaryTest, ConnectedComponentsEmptyInput)
     EXPECT_EQ(result.count, 0);
     EXPECT_TRUE(result.labels.empty());
     EXPECT_TRUE(colorizeLabels(cv::Mat()).empty());
+}
+
+namespace {
+
+bool isGreenOutline(const cv::Vec3b &pixel)
+{
+    return pixel[1] > 200 && pixel[0] < 80 && pixel[2] < 80;
+}
+
+int countGreen(const cv::Mat &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.rows; ++y) {
+        for (int x = 0; x < image.cols; ++x) {
+            if (isGreenOutline(image.at<cv::Vec3b>(y, x)))
+                ++count;
+        }
+    }
+    return count;
+}
+
+} // namespace
+
+TEST(BinaryTest, ContoursDetectSeparateShapes)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(10, 10, 20, 20), cv::Scalar(255, 255, 255),
+                  cv::FILLED);
+    cv::rectangle(image, cv::Rect(60, 60, 25, 15), cv::Scalar(255, 255, 255),
+                  cv::FILLED);
+
+    ContourParams params;  // Otsu, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE
+    params.lineType = cv::LINE_8;
+    const auto result = findAndDrawContours(image, params);
+
+    EXPECT_EQ(result.count, 2);
+    ASSERT_EQ(result.image.size(), image.size());
+    EXPECT_EQ(result.image.type(), image.type());
+    // The contour is drawn in green on the shape's top edge
+    EXPECT_TRUE(isGreenOutline(result.image.at<cv::Vec3b>(10, 15)));
+    // A pixel well inside keeps the source color
+    EXPECT_EQ(result.image.at<cv::Vec3b>(20, 20), cv::Vec3b(255, 255, 255));
+}
+
+TEST(BinaryTest, ContourRetrievalModesHandleNesting)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(10, 10, 80, 80), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(30, 30, 40, 40), cv::Scalar(0), cv::FILLED);
+    cv::rectangle(image, cv::Rect(45, 45, 10, 10), cv::Scalar(255), cv::FILLED);
+
+    ContourParams params;
+    params.retrieval = cv::RETR_EXTERNAL;
+    params.approximation = cv::CHAIN_APPROX_SIMPLE;
+    EXPECT_EQ(findAndDrawContours(image, params).count, 1);
+
+    // Tree mode reports the outer boundary, the hole and the island
+    params.retrieval = cv::RETR_TREE;
+    EXPECT_EQ(findAndDrawContours(image, params).count, 3);
+}
+
+TEST(BinaryTest, ContourApproximationControlsPointDensity)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(20, 20, 40, 30), cv::Scalar(255), cv::FILLED);
+
+    ContourParams params;
+    params.retrieval = cv::RETR_EXTERNAL;
+    params.approximation = cv::CHAIN_APPROX_NONE;
+    const auto exact = findAndDrawContours(image, params);
+    ASSERT_EQ(exact.count, 1);
+
+    // SIMPLE keeps only the corner points of a rectangle
+    params.approximation = cv::CHAIN_APPROX_SIMPLE;
+    const auto simple = findAndDrawContours(image, params);
+    ASSERT_EQ(simple.count, 1);
+    ASSERT_EQ(exact.contours.size(), simple.contours.size());
+    EXPECT_GT(exact.contours[0].size(), simple.contours[0].size() * 4);
+}
+
+TEST(BinaryTest, ContourOffsetShiftsTheOutline)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(20, 20, 20, 20), cv::Scalar(255, 255, 255),
+                  cv::FILLED);
+
+    ContourParams params;
+    params.lineType = cv::LINE_8;
+    params.thickness = 1;
+    params.offset = cv::Point(30, 25);
+    const auto result = findAndDrawContours(image, params);
+
+    ASSERT_EQ(result.count, 1);
+    // The outline moved right 30 and down 25
+    EXPECT_TRUE(isGreenOutline(result.image.at<cv::Vec3b>(45, 50)));
+    EXPECT_FALSE(isGreenOutline(result.image.at<cv::Vec3b>(20, 20)));
+}
+
+TEST(BinaryTest, ContourThresholdAndOtsuSelectTheBinaryInput)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(128));
+    cv::rectangle(image, cv::Rect(30, 30, 20, 20), cv::Scalar(200), cv::FILLED);
+
+    ContourParams params;
+    params.otsu = false;
+    params.threshold = 150;
+    EXPECT_EQ(findAndDrawContours(image, params).count, 1);
+
+    params.threshold = 220;  // nothing is brighter
+    EXPECT_EQ(findAndDrawContours(image, params).count, 0);
+
+    params.otsu = true;  // Otsu separates the 128 background from 200
+    EXPECT_EQ(findAndDrawContours(image, params).count, 1);
+}
+
+TEST(BinaryTest, ContourInvertFindsTheComplement)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(128));
+    cv::rectangle(image, cv::Rect(30, 30, 20, 20), cv::Scalar(200), cv::FILLED);
+
+    ContourParams params;
+    params.otsu = false;
+    params.threshold = 150;
+    params.retrieval = cv::RETR_TREE;
+    EXPECT_EQ(findAndDrawContours(image, params).count, 1);
+
+    // Inverted: the background becomes the white region and the square a hole
+    params.invert = true;
+    EXPECT_EQ(findAndDrawContours(image, params).count, 2);
+}
+
+TEST(BinaryTest, ContourThicknessWidensTheOutline)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(20, 20, 40, 40), cv::Scalar(255, 255, 255),
+                  cv::FILLED);
+
+    ContourParams params;
+    params.lineType = cv::LINE_8;
+    params.thickness = 1;
+    const int thin = countGreen(findAndDrawContours(image, params).image);
+
+    params.thickness = 5;
+    const int wide = countGreen(findAndDrawContours(image, params).image);
+    EXPECT_GT(wide, thin);
+}
+
+TEST(BinaryTest, ContourLargestOnlyDrawsTheLargest)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(5, 5, 10, 10), cv::Scalar(255, 255, 255),
+                  cv::FILLED);  // small, scanned first
+    cv::rectangle(image, cv::Rect(40, 40, 40, 40), cv::Scalar(255, 255, 255),
+                  cv::FILLED);  // large
+
+    ContourParams params;
+    params.lineType = cv::LINE_8;
+    params.thickness = 1;
+    params.largestOnly = true;
+    const auto result = findAndDrawContours(image, params);
+
+    EXPECT_EQ(result.count, 2);  // detection is unaffected
+    EXPECT_TRUE(isGreenOutline(result.image.at<cv::Vec3b>(40, 55)));
+    EXPECT_FALSE(isGreenOutline(result.image.at<cv::Vec3b>(5, 10)));
+}
+
+TEST(BinaryTest, ContoursPreserveTheChannelCount)
+{
+    cv::Mat gray(40, 40, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(gray, cv::Rect(10, 10, 20, 20), cv::Scalar(255), cv::FILLED);
+    ContourParams params;
+    EXPECT_EQ(findAndDrawContours(gray, params).image.type(), CV_8UC1);
+
+    cv::Mat bgra(40, 40, CV_8UC4, cv::Scalar(0, 0, 0, 77));
+    cv::rectangle(bgra, cv::Rect(10, 10, 20, 20), cv::Scalar(255, 255, 255, 77),
+                  cv::FILLED);
+    EXPECT_EQ(findAndDrawContours(bgra, params).image.type(), CV_8UC4);
+
+    const auto empty = findAndDrawContours(cv::Mat(), params);
+    EXPECT_EQ(empty.count, 0);
+    EXPECT_TRUE(empty.image.empty());
+}
+
+TEST(BinaryTest, ContourMetricsUseAreaLengthAndBoundingRect)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(20, 20, 40, 30), cv::Scalar(200, 200, 200),
+                  cv::FILLED);
+
+    ContourParams params;
+    params.lineType = cv::LINE_8;
+    const auto result = findAndDrawContours(image, params);
+
+    ASSERT_EQ(result.infos.size(), 1u);
+    const auto &info = result.infos[0];
+    EXPECT_EQ(info.index, 1);  // one-based numbering
+    // The traced boundary polygon spans 39 x 29 pixel centers
+    EXPECT_NEAR(info.area, 39.0 * 29.0, 1.0);
+    EXPECT_NEAR(info.perimeter, 2.0 * (39.0 + 29.0), 1.0);
+    EXPECT_EQ(info.boundingBox, cv::Rect(20, 20, 40, 30));
+}
+
+TEST(BinaryTest, ContourInfosAreNumberedTopLeftFirst)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(10, 10, 20, 20), cv::Scalar(200, 200, 200),
+                  cv::FILLED);
+    cv::rectangle(image, cv::Rect(60, 60, 15, 10), cv::Scalar(200, 200, 200),
+                  cv::FILLED);
+
+    ContourParams params;
+    const auto result = findAndDrawContours(image, params);
+
+    ASSERT_EQ(result.count, 2);
+    ASSERT_EQ(result.infos.size(), 2u);
+    EXPECT_EQ(result.infos[0].index, 1);  // scanned top-left first
+    EXPECT_EQ(result.infos[1].index, 2);
+    EXPECT_EQ(result.infos[0].boundingBox, cv::Rect(10, 10, 20, 20));
+    EXPECT_EQ(result.infos[1].boundingBox, cv::Rect(60, 60, 15, 10));
+    EXPECT_GT(result.infos[0].area, result.infos[1].area);
+}
+
+TEST(BinaryTest, ContourNumbersAreDrawnOnTheImage)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(20, 20, 40, 30), cv::Scalar(200, 200, 200),
+                  cv::FILLED);
+
+    ContourParams params;
+    params.lineType = cv::LINE_8;
+    const auto result = findAndDrawContours(image, params);
+
+    auto countWhite = [](const cv::Mat &img) {
+        int count = 0;
+        for (int y = 0; y < img.rows; ++y) {
+            for (int x = 0; x < img.cols; ++x) {
+                const cv::Vec3b pixel = img.at<cv::Vec3b>(y, x);
+                if (pixel[0] > 240 && pixel[1] > 240 && pixel[2] > 240)
+                    ++count;
+            }
+        }
+        return count;
+    };
+    EXPECT_EQ(countWhite(image), 0);  // the source has no white pixels
+    EXPECT_GT(countWhite(result.image), 0);  // the contour number glyphs are white
+}
+
+TEST(BinaryTest, ContourInfosCoverAllContoursWhenDrawingOnlyTheLargest)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(5, 5, 10, 10), cv::Scalar(200, 200, 200),
+                  cv::FILLED);
+    cv::rectangle(image, cv::Rect(40, 40, 40, 40), cv::Scalar(200, 200, 200),
+                  cv::FILLED);
+
+    ContourParams params;
+    params.largestOnly = true;
+    const auto result = findAndDrawContours(image, params);
+    EXPECT_EQ(result.infos.size(), 2u);  // the list still reports every contour
+}
+
+namespace {
+
+int countRedOutline(const cv::Mat &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.rows; ++y) {
+        for (int x = 0; x < image.cols; ++x) {
+            const cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
+            if (pixel[2] > 200 && pixel[0] < 80 && pixel[1] < 80)
+                ++count;
+        }
+    }
+    return count;
+}
+
+} // namespace
+
+TEST(BinaryTest, EllipseFitDescribesACircularContour)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::circle(image, cv::Point(50, 50), 20, cv::Scalar(200, 200, 200),
+               cv::FILLED);
+
+    ContourParams contourParams;
+    contourParams.approximation = cv::CHAIN_APPROX_NONE;
+    ContourFitParams fitParams;
+    fitParams.type = ContourFitType::Ellipse;
+    const auto result = findAndFitContours(image, contourParams, fitParams);
+
+    ASSERT_EQ(result.contourInfos.size(), 1u);
+    ASSERT_EQ(result.fits.size(), 1u);
+    EXPECT_TRUE(result.fits[0].valid);
+    EXPECT_EQ(result.fits[0].index, 1);
+    EXPECT_NEAR(result.fits[0].ellipse.center.x, 50.0, 1.5);
+    EXPECT_NEAR(result.fits[0].ellipse.center.y, 50.0, 1.5);
+    EXPECT_NEAR(result.fits[0].ellipse.size.width,
+                result.fits[0].ellipse.size.height, 2.0);
+    // The fitted ellipse is drawn in red
+    EXPECT_GT(countRedOutline(result.image), 0);
+}
+
+TEST(BinaryTest, EllipseFitRejectsTooFewPoints)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(20, 20, 40, 30), cv::Scalar(255), cv::FILLED);
+
+    ContourParams contourParams;  // CHAIN_APPROX_SIMPLE keeps just 4 points
+    ContourFitParams fitParams;
+    fitParams.type = ContourFitType::Ellipse;
+    const auto result = findAndFitContours(image, contourParams, fitParams);
+
+    ASSERT_EQ(result.fits.size(), 1u);
+    EXPECT_FALSE(result.fits[0].valid);  // fitEllipse needs at least 5 points
+}
+
+TEST(BinaryTest, LineFitFollowsADiagonalStroke)
+{
+    cv::Mat image(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::line(image, cv::Point(20, 20), cv::Point(80, 60),
+             cv::Scalar(200, 200, 200), 7);
+
+    ContourParams contourParams;
+    contourParams.approximation = cv::CHAIN_APPROX_NONE;
+    ContourFitParams fitParams;
+    fitParams.type = ContourFitType::Line;
+    const auto result = findAndFitContours(image, contourParams, fitParams);
+
+    ASSERT_EQ(result.fits.size(), 1u);
+    ASSERT_TRUE(result.fits[0].valid);
+    // The direction is parallel (either sign) to the stroke (60, 40)
+    const double length = std::sqrt(60.0 * 60.0 + 40.0 * 40.0);
+    const double dot =
+        std::abs(result.fits[0].lineDirection.x * (60.0 / length)
+                 + result.fits[0].lineDirection.y * (40.0 / length));
+    EXPECT_GT(dot, 0.99);
+    EXPECT_GT(countRedOutline(result.image), 0);
+}
+
+TEST(BinaryTest, LineFitSupportsAllDistanceTypes)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::line(image, cv::Point(15, 20), cv::Point(85, 70), cv::Scalar(255), 7);
+
+    ContourParams contourParams;
+    contourParams.approximation = cv::CHAIN_APPROX_NONE;
+    ContourFitParams fitParams;
+    fitParams.type = ContourFitType::Line;
+    fitParams.param = 1.0;
+    for (const int dist :
+         {cv::DIST_L2, cv::DIST_L1, cv::DIST_L12, cv::DIST_FAIR,
+          cv::DIST_WELSCH, cv::DIST_HUBER}) {
+        fitParams.distType = dist;
+        const auto result =
+            findAndFitContours(image, contourParams, fitParams);
+        ASSERT_EQ(result.fits.size(), 1u);
+        EXPECT_TRUE(result.fits[0].valid) << "distType " << dist;
+    }
+}
+
+TEST(BinaryTest, PolygonApproximationUsesEpsilon)
+{
+    cv::Mat rectangle(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(rectangle, cv::Rect(20, 20, 40, 30), cv::Scalar(255),
+                  cv::FILLED);
+
+    ContourParams contourParams;
+    contourParams.approximation = cv::CHAIN_APPROX_NONE;
+    ContourFitParams fitParams;
+    fitParams.type = ContourFitType::Polygon;
+    fitParams.epsilon = 1.0;
+    fitParams.closed = true;
+    const auto fine = findAndFitContours(rectangle, contourParams, fitParams);
+    ASSERT_EQ(fine.fits.size(), 1u);
+    EXPECT_TRUE(fine.fits[0].valid);
+    EXPECT_EQ(fine.fits[0].vertexCount, 4);  // a rectangle keeps its corners
+    EXPECT_NEAR(fine.fits[0].polygonArea, 39.0 * 29.0, 2.0);
+
+    // A large epsilon collapses a circular outline to fewer vertices
+    cv::Mat circle(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::circle(circle, cv::Point(50, 50), 20, cv::Scalar(255), cv::FILLED);
+    fitParams.epsilon = 1.0;
+    const auto fineCircle =
+        findAndFitContours(circle, contourParams, fitParams);
+    fitParams.epsilon = 20.0;
+    const auto coarseCircle =
+        findAndFitContours(circle, contourParams, fitParams);
+    ASSERT_EQ(fineCircle.fits.size(), 1u);
+    ASSERT_EQ(coarseCircle.fits.size(), 1u);
+    EXPECT_GT(fineCircle.fits[0].vertexCount,
+              coarseCircle.fits[0].vertexCount);
+}
+
+TEST(BinaryTest, FitsCoverEveryContour)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(10, 10, 20, 20), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(60, 60, 15, 10), cv::Scalar(255), cv::FILLED);
+
+    ContourParams contourParams;
+    contourParams.approximation = cv::CHAIN_APPROX_NONE;
+    ContourFitParams fitParams;
+    fitParams.type = ContourFitType::Ellipse;
+    const auto result = findAndFitContours(image, contourParams, fitParams);
+
+    ASSERT_EQ(result.fits.size(), 2u);
+    EXPECT_EQ(result.fits[0].index, 1);
+    EXPECT_EQ(result.fits[1].index, 2);
+    EXPECT_EQ(result.contourInfos.size(), 2u);
 }

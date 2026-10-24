@@ -17,6 +17,7 @@
 #include "processing/binary.h"
 #include "processing/filter_processor.h"
 #include "processing/geometry.h"
+#include "processing/image_io.h"
 #include "ui/image_viewer_widget.h"
 
 using chameleon::AppState;
@@ -1009,6 +1010,70 @@ TEST_F(ImageViewerTest, RotationKeepsTheDisplayScale)
     // image, so rotation must pin the previously displayed scale instead
     ASSERT_EQ(AppState::instance()->imageInfo(), QSize(400, 640));
     EXPECT_NEAR(displayedScale(m_viewer), before, 1e-6);
+}
+
+TEST_F(ImageViewerTest, ContoursAreDrawnAndUndoable)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const cv::Mat original = m_viewer->currentImage().clone();
+
+    chameleon::ContourParams params;
+    params.otsu = false;
+    params.threshold = 100;  // the whole background becomes the binary foreground
+    const auto infos = m_viewer->applyContours(params);
+    EXPECT_FALSE(infos.empty());
+    EXPECT_EQ(infos.front().index, 1);
+    EXPECT_GT(infos.front().boundingBox.area(), 0);
+
+    const cv::Mat drawn = m_viewer->currentImage();
+    ASSERT_EQ(drawn.size(), original.size());
+    cv::Mat diff;
+    cv::absdiff(drawn, original, diff);
+    EXPECT_GT(cv::countNonZero(diff.reshape(1)), 0);
+
+    m_viewer->undo();
+    cv::Mat restored;
+    cv::absdiff(m_viewer->currentImage(), original, restored);
+    EXPECT_EQ(cv::countNonZero(restored.reshape(1)), 0);
+}
+
+TEST_F(ImageViewerTest, ContourFitsAreAppliedAndUndoable)
+{
+    // A single filled circle: exactly one contour with plenty of points
+    const QString path = QDir::tempPath() + "/chameleon_fit_viewer.png";
+    QFile::remove(path);
+    cv::Mat source(240, 320, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::circle(source, cv::Point(160, 120), 60, cv::Scalar(255, 255, 255),
+               cv::FILLED);
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(path.toStdString(), source));
+
+    AppState::instance()->openImages({path});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const cv::Mat original = m_viewer->currentImage().clone();
+
+    chameleon::ContourParams contourParams;  // Otsu
+    chameleon::ContourFitParams fitParams;
+    fitParams.type = chameleon::ContourFitType::Ellipse;
+    const auto result =
+        m_viewer->applyContourFit(contourParams, fitParams);
+
+    ASSERT_EQ(result.contourInfos.size(), 1u);
+    ASSERT_EQ(result.fits.size(), 1u);
+    EXPECT_TRUE(result.fits.front().valid);
+
+    cv::Mat diff;
+    cv::absdiff(m_viewer->currentImage(), original, diff);
+    EXPECT_GT(cv::countNonZero(diff.reshape(1)), 0);
+
+    m_viewer->undo();
+    cv::Mat restored;
+    cv::absdiff(m_viewer->currentImage(), original, restored);
+    EXPECT_EQ(cv::countNonZero(restored.reshape(1)), 0);
+
+    QFile::remove(path);
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

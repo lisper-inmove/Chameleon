@@ -43,6 +43,7 @@ private:
     void openSharpenDialog();
     void openThresholdDialog();
     void openConnectedComponentsDialog();
+    void openContourDialog();
     void openGeometryDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();

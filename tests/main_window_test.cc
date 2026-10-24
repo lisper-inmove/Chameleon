@@ -23,9 +23,12 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QToolButton>
 #include <QWheelEvent>
 #include <QtTest/QTest>
+
+#include <opencv2/imgproc.hpp>
 
 #include "app/app_state.h"
 #include "processing/image_io.h"
@@ -33,6 +36,7 @@
 #include "ui/back_project_dialog.h"
 #include "ui/convolution_dialog.h"
 #include "ui/connected_components_dialog.h"
+#include "ui/contour_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
 #include "ui/sharpen_dialog.h"
@@ -49,6 +53,7 @@ using chameleon::AppState;
 using chameleon::HistogramCompareDialog;
 using chameleon::BackProjectDialog;
 using chameleon::ConnectedComponentsDialog;
+using chameleon::ContourDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::EdgeDialog;
 using chameleon::NoiseDialog;
@@ -1236,6 +1241,164 @@ TEST_F(MainWindowTest, ConnectedComponentsDialogComputesAndShows)
     resultWindow->close();
     dialog->close();
     QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("contourButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ContourDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *modeCombo = dialog->findChild<QComboBox *>("contourModeCombo");
+    auto *methodCombo = dialog->findChild<QComboBox *>("contourMethodCombo");
+    auto *offsetXSpin = dialog->findChild<QSpinBox *>("contourOffsetXSpin");
+    auto *offsetYSpin = dialog->findChild<QSpinBox *>("contourOffsetYSpin");
+    auto *thresholdSpin = dialog->findChild<QSpinBox *>("contourThresholdSpin");
+    auto *otsuCheck = dialog->findChild<QCheckBox *>("contourOtsuCheck");
+    auto *thicknessSpin = dialog->findChild<QSpinBox *>("contourThicknessSpin");
+    auto *lineTypeCombo = dialog->findChild<QComboBox *>("contourLineTypeCombo");
+    auto *largestCheck = dialog->findChild<QCheckBox *>("contourLargestCheck");
+    auto *applyButton = dialog->findChild<QPushButton *>("contourApplyButton");
+    auto *countLabel = dialog->findChild<QLabel *>("contourCountLabel");
+    auto *statsTable = dialog->findChild<QTableWidget *>("contourStatsTable");
+    ASSERT_NE(modeCombo, nullptr);
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(offsetXSpin, nullptr);
+    ASSERT_NE(offsetYSpin, nullptr);
+    ASSERT_NE(thresholdSpin, nullptr);
+    ASSERT_NE(otsuCheck, nullptr);
+    ASSERT_NE(thicknessSpin, nullptr);
+    ASSERT_NE(lineTypeCombo, nullptr);
+    ASSERT_NE(largestCheck, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(countLabel, nullptr);
+    ASSERT_NE(statsTable, nullptr);
+
+    // All cv::findContours parameters are exposed
+    EXPECT_EQ(modeCombo->count(), 4);    // EXTERNAL / LIST / CCOMP / TREE
+    EXPECT_EQ(methodCombo->count(), 4);  // NONE / SIMPLE / TC89-L1 / TC89-KCOS
+    EXPECT_EQ(lineTypeCombo->count(), 3);
+    EXPECT_TRUE(otsuCheck->isChecked());
+    EXPECT_FALSE(thresholdSpin->isEnabled());  // Otsu ignores the manual value
+    otsuCheck->setChecked(false);
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(thresholdSpin->isEnabled());
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(countLabel->text().contains(QStringLiteral("轮廓")));
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    // Every contour is listed with its number, area, perimeter and box
+    EXPECT_EQ(statsTable->columnCount(), 4);
+    ASSERT_GT(statsTable->rowCount(), 0);
+    EXPECT_EQ(statsTable->item(0, 0)->text(), QStringLiteral("1"));
+    EXPECT_FALSE(statsTable->item(0, 1)->text().isEmpty());  // area
+    EXPECT_FALSE(statsTable->item(0, 2)->text().isEmpty());  // perimeter
+    EXPECT_FALSE(statsTable->item(0, 3)->text().isEmpty());  // bounding box
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
+TEST_F(MainWindowTest, ContourFitButtonsApplyAndListResults)
+{
+    // A single filled circle: exactly one valid contour for every fit
+    const QString path = QDir::tempPath() + "/chameleon_fit_ui.png";
+    QFile::remove(path);
+    cv::Mat source(240, 320, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::circle(source, cv::Point(160, 120), 60, cv::Scalar(255, 255, 255),
+               cv::FILLED);
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(path.toStdString(), source));
+
+    AppState::instance()->openImages({path});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("contourButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ContourDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *otsuCheck = dialog->findChild<QCheckBox *>("contourOtsuCheck");
+    auto *thresholdSpin = dialog->findChild<QSpinBox *>("contourThresholdSpin");
+    auto *ellipseButton =
+        dialog->findChild<QPushButton *>("contourFitEllipseButton");
+    auto *lineButton =
+        dialog->findChild<QPushButton *>("contourFitLineButton");
+    auto *polyButton =
+        dialog->findChild<QPushButton *>("contourFitPolyButton");
+    auto *distCombo = dialog->findChild<QComboBox *>("contourLineDistCombo");
+    auto *paramSpin =
+        dialog->findChild<QDoubleSpinBox *>("contourLineParamSpin");
+    auto *repsSpin =
+        dialog->findChild<QDoubleSpinBox *>("contourLineRepsSpin");
+    auto *aepsSpin =
+        dialog->findChild<QDoubleSpinBox *>("contourLineAepsSpin");
+    auto *epsilonSpin =
+        dialog->findChild<QDoubleSpinBox *>("contourPolyEpsilonSpin");
+    auto *closedCheck =
+        dialog->findChild<QCheckBox *>("contourPolyClosedCheck");
+    auto *fitThickness =
+        dialog->findChild<QSpinBox *>("contourFitThicknessSpin");
+    auto *fitTable = dialog->findChild<QTableWidget *>("contourFitTable");
+    ASSERT_NE(otsuCheck, nullptr);
+    ASSERT_NE(thresholdSpin, nullptr);
+    ASSERT_NE(ellipseButton, nullptr);
+    ASSERT_NE(lineButton, nullptr);
+    ASSERT_NE(polyButton, nullptr);
+    ASSERT_NE(distCombo, nullptr);
+    ASSERT_NE(paramSpin, nullptr);
+    ASSERT_NE(repsSpin, nullptr);
+    ASSERT_NE(aepsSpin, nullptr);
+    ASSERT_NE(epsilonSpin, nullptr);
+    ASSERT_NE(closedCheck, nullptr);
+    ASSERT_NE(fitThickness, nullptr);
+    ASSERT_NE(fitTable, nullptr);
+
+    // All fitLine distance types and approxPolyDP options are exposed
+    EXPECT_EQ(distCombo->count(), 6);
+    EXPECT_TRUE(closedCheck->isChecked());
+    EXPECT_EQ(fitTable->columnCount(), 2);
+
+    const QImage before = viewer->grab().toImage();
+    ellipseButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    ASSERT_EQ(fitTable->rowCount(), 1);
+    EXPECT_EQ(fitTable->item(0, 0)->text(), QStringLiteral("1"));
+    EXPECT_TRUE(
+        fitTable->item(0, 1)->text().contains(QStringLiteral("中心")));
+
+    polyButton->click();
+    QCoreApplication::processEvents();
+    ASSERT_EQ(fitTable->rowCount(), 1);
+    EXPECT_TRUE(
+        fitTable->item(0, 1)->text().contains(QStringLiteral("顶点数")));
+
+    lineButton->click();
+    QCoreApplication::processEvents();
+    ASSERT_EQ(fitTable->rowCount(), 1);
+    EXPECT_TRUE(
+        fitTable->item(0, 1)->text().contains(QStringLiteral("方向")));
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+    QFile::remove(path);
 }
 
 TEST_F(MainWindowTest, GeometryDialogAppliesRotateAndUndoes)
