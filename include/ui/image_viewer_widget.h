@@ -18,6 +18,7 @@
 #include "processing/binary.h"
 #include "processing/filter_processor.h"
 #include "processing/geometry.h"
+#include "processing/hough.h"
 #include "processing/noise.h"
 
 namespace chameleon {
@@ -112,6 +113,9 @@ public:
     // drawn over the contours; undoable. Returns the measurements and fits.
     ContourFitResult applyContourFit(const ContourParams &contourParams,
                                      const ContourFitParams &fitParams);
+    // One-shot Hough transform detection; undoable
+    HoughResult applyHoughLines(const HoughLinesParams &params);
+    HoughResult applyHoughCircles(const HoughCirclesParams &params);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);

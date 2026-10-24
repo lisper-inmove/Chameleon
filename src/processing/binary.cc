@@ -290,11 +290,40 @@ SortedContours findSortedContours(const cv::Mat &image,
     result.infos.reserve(contourCount);
     for (size_t rank = 0; rank < contourCount; ++rank) {
         const size_t source = order[rank];
+        const std::vector<cv::Point> &contour = found[source];
+
         ContourInfo info;
         info.index = int(rank) + 1;
-        info.area = cv::contourArea(found[source]);
-        info.perimeter = cv::arcLength(found[source], true);
+        info.area = cv::contourArea(contour);
+        info.perimeter = cv::arcLength(contour, true);
         info.boundingBox = boxes[source];
+
+        // cv::minAreaRect-based shape descriptors
+        info.minAreaRect = cv::minAreaRect(contour);
+        const double side1 = info.minAreaRect.size.width;
+        const double side2 = info.minAreaRect.size.height;
+        const double rectArea = side1 * side2;
+        info.aspectRatio = (side1 > 0.0 && side2 > 0.0)
+                ? std::max(side1, side2) / std::min(side1, side2)
+                : 0.0;
+        info.extent = rectArea > 0.0 ? info.area / rectArea : 0.0;
+        std::vector<cv::Point> hull;
+        cv::convexHull(contour, hull);
+        const double hullArea = cv::contourArea(hull);
+        info.solidity = hullArea > 0.0 ? info.area / hullArea : 0.0;
+
+        // Mean luminance of the object pixels: the filled contour as a
+        // mask over the original image, computed in the bounding box only
+        const cv::Rect &box = boxes[source];
+        if (box.width > 0 && box.height > 0) {
+            cv::Mat mask = cv::Mat::zeros(box.size(), CV_8U);
+            cv::drawContours(mask, found, int(source), cv::Scalar(255),
+                             cv::FILLED, cv::LINE_8, cv::noArray(),
+                             std::numeric_limits<int>::max(),
+                             cv::Point(-box.x, -box.y));
+            info.meanValue = cv::mean(gray(box), mask)[0];
+        }
+
         result.infos.push_back(info);
         result.points.push_back(std::move(found[source]));
     }

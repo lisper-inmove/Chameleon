@@ -34,6 +34,7 @@
 #include "ui/back_project_dialog.h"
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
+#include "ui/hough_dialog.h"
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/geometry_dialog.h"
@@ -447,6 +448,14 @@ void MainWindow::setupToolBar()
     connect(contourButton, &QToolButton::clicked,
             this, &MainWindow::openContourDialog);
     toolBar->addWidget(contourButton);
+
+    auto *houghButton = new QToolButton(toolBar);
+    houghButton->setText(QStringLiteral("霍夫..."));
+    houghButton->setObjectName("houghButton");
+    houghButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(houghButton, &QToolButton::clicked,
+            this, &MainWindow::openHoughDialog);
+    toolBar->addWidget(houghButton);
 
     auto *geometryButton = new QToolButton(toolBar);
     geometryButton->setText(QStringLiteral("几何..."));
@@ -887,6 +896,32 @@ void MainWindow::openContourDialog()
                         .arg(result.fits.size()),
                     2500);
             });
+    dialog->show();
+}
+
+void MainWindow::openHoughDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<HoughDialog>(this))
+        return;
+    auto *dialog = new HoughDialog(this);
+    connect(dialog, &HoughDialog::applyRequested, this, [this, dialog] {
+        const HoughMode mode = dialog->mode();
+        HoughResult result;
+        if (mode == HoughMode::Lines) {
+            result = m_viewer->applyHoughLines(dialog->lineParams());
+            statusBar()->showMessage(
+                QStringLiteral("检测到 %1 条直线").arg(result.lines.size()),
+                2500);
+        } else {
+            result = m_viewer->applyHoughCircles(dialog->circleParams());
+            statusBar()->showMessage(
+                QStringLiteral("检测到 %1 个圆").arg(result.circles.size()),
+                2500);
+        }
+        dialog->setHoughResult(result, mode);
+    });
     dialog->show();
 }
 

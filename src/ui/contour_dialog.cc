@@ -125,11 +125,13 @@ ContourDialog::ContourDialog(QWidget *parent) : QDialog(parent)
     m_countLabel = new QLabel(QStringLiteral("检测到 -- 个轮廓"), this);
     m_countLabel->setObjectName(QStringLiteral("contourCountLabel"));
 
-    m_statsTable = new QTableWidget(0, 4, this);
+    m_statsTable = new QTableWidget(0, 8, this);
     m_statsTable->setObjectName(QStringLiteral("contourStatsTable"));
     m_statsTable->setHorizontalHeaderLabels(
         {QStringLiteral("编号"), QStringLiteral("面积"),
-         QStringLiteral("周长"), QStringLiteral("包围盒 (x, y, 宽, 高)")});
+         QStringLiteral("周长"), QStringLiteral("包围盒 (x, y, 宽, 高)"),
+         QStringLiteral("横纵比"), QStringLiteral("延展度"),
+         QStringLiteral("实密度"), QStringLiteral("均值")});
     m_statsTable->horizontalHeader()->setStretchLastSection(true);
     m_statsTable->verticalHeader()->setVisible(false);
     m_statsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -249,7 +251,7 @@ ContourDialog::ContourDialog(QWidget *parent) : QDialog(parent)
     layout->addWidget(tabs, 1);
     layout->addWidget(hint);
     layout->addWidget(applyButton);
-    resize(560, 720);
+    resize(780, 720);
 
     connect(m_otsuCheck, &QCheckBox::toggled, this, [this] {
         updateThresholdEnabled();
@@ -299,6 +301,18 @@ void ContourDialog::setContourInfos(const std::vector<ContourInfo> &infos)
                     .arg(info.boundingBox.y)
                     .arg(info.boundingBox.width)
                     .arg(info.boundingBox.height)));
+        m_statsTable->setItem(
+            row, 4,
+            new QTableWidgetItem(QString::number(info.aspectRatio, 'f', 2)));
+        m_statsTable->setItem(
+            row, 5,
+            new QTableWidgetItem(QString::number(info.extent, 'f', 3)));
+        m_statsTable->setItem(
+            row, 6,
+            new QTableWidgetItem(QString::number(info.solidity, 'f', 3)));
+        m_statsTable->setItem(
+            row, 7,
+            new QTableWidgetItem(QString::number(info.meanValue, 'f', 1)));
     }
 }
 

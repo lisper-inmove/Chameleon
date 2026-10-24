@@ -22,6 +22,7 @@ add_executable(chameleon_tests
     tests/geometry_test.cc
     tests/filter_processor_test.cc
     tests/histogram_test.cc
+    tests/hough_test.cc
     tests/noise_test.cc
     tests/image_viewer_test.cc
     tests/main_window_test.cc

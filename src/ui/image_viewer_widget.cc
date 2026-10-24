@@ -550,6 +550,28 @@ ContourFitResult ImageViewerWidget::applyContourFit(
     return result;
 }
 
+HoughResult ImageViewerWidget::applyHoughLines(
+    const HoughLinesParams &params)
+{
+    HoughResult result;
+    applyOperation([&params, &result](const cv::Mat &image) {
+        result = chameleon::houghLines(image, params);
+        return result.image;
+    });
+    return result;
+}
+
+HoughResult ImageViewerWidget::applyHoughCircles(
+    const HoughCirclesParams &params)
+{
+    HoughResult result;
+    applyOperation([&params, &result](const cv::Mat &image) {
+        result = chameleon::houghCircles(image, params);
+        return result.image;
+    });
+    return result;
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo

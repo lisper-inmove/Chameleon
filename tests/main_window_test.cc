@@ -37,6 +37,7 @@
 #include "ui/convolution_dialog.h"
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
+#include "ui/hough_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
 #include "ui/sharpen_dialog.h"
@@ -55,6 +56,7 @@ using chameleon::BackProjectDialog;
 using chameleon::ConnectedComponentsDialog;
 using chameleon::ContourDialog;
 using chameleon::ConvolutionDialog;
+using chameleon::HoughDialog;
 using chameleon::EdgeDialog;
 using chameleon::NoiseDialog;
 using chameleon::SharpenDialog;
@@ -1299,13 +1301,18 @@ TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
     EXPECT_TRUE(countLabel->text().contains(QStringLiteral("轮廓")));
     EXPECT_TRUE(action("undoAction")->isEnabled());
 
-    // Every contour is listed with its number, area, perimeter and box
-    EXPECT_EQ(statsTable->columnCount(), 4);
+    // Every contour is listed with its number, area, perimeter, box and
+    // the minAreaRect shape descriptors
+    EXPECT_EQ(statsTable->columnCount(), 8);
     ASSERT_GT(statsTable->rowCount(), 0);
     EXPECT_EQ(statsTable->item(0, 0)->text(), QStringLiteral("1"));
     EXPECT_FALSE(statsTable->item(0, 1)->text().isEmpty());  // area
     EXPECT_FALSE(statsTable->item(0, 2)->text().isEmpty());  // perimeter
     EXPECT_FALSE(statsTable->item(0, 3)->text().isEmpty());  // bounding box
+    EXPECT_FALSE(statsTable->item(0, 4)->text().isEmpty());  // aspect ratio
+    EXPECT_FALSE(statsTable->item(0, 5)->text().isEmpty());  // extent
+    EXPECT_FALSE(statsTable->item(0, 6)->text().isEmpty());  // solidity
+    EXPECT_FALSE(statsTable->item(0, 7)->text().isEmpty());  // pixel mean
 
     dialog->close();
     QCoreApplication::processEvents();
@@ -1399,6 +1406,142 @@ TEST_F(MainWindowTest, ContourFitButtonsApplyAndListResults)
     dialog->close();
     QCoreApplication::processEvents();
     QFile::remove(path);
+}
+
+TEST_F(MainWindowTest, HoughDialogExposesParametersAndApplies)
+{
+    // A vertical line for the HoughLines mode
+    const QString linePath = QDir::tempPath() + "/chameleon_hough_line.png";
+    QFile::remove(linePath);
+    cv::Mat lineImage(200, 200, CV_8UC1, cv::Scalar(0));
+    cv::line(lineImage, cv::Point(100, 20), cv::Point(100, 180),
+             cv::Scalar(255), 3);
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(linePath.toStdString(), lineImage));
+
+    AppState::instance()->openImages({linePath});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("houghButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<HoughDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *modeCombo = dialog->findChild<QComboBox *>("houghModeCombo");
+    auto *rhoSpin = dialog->findChild<QDoubleSpinBox *>("houghRhoSpin");
+    auto *thetaSpin = dialog->findChild<QDoubleSpinBox *>("houghThetaSpin");
+    auto *thresholdSpin = dialog->findChild<QSpinBox *>("houghThresholdSpin");
+    auto *srnSpin = dialog->findChild<QDoubleSpinBox *>("houghSrnSpin");
+    auto *stnSpin = dialog->findChild<QDoubleSpinBox *>("houghStnSpin");
+    auto *minThetaSpin =
+        dialog->findChild<QDoubleSpinBox *>("houghMinThetaSpin");
+    auto *maxThetaSpin =
+        dialog->findChild<QDoubleSpinBox *>("houghMaxThetaSpin");
+    auto *canny1Spin = dialog->findChild<QSpinBox *>("houghCanny1Spin");
+    auto *canny2Spin = dialog->findChild<QSpinBox *>("houghCanny2Spin");
+    auto *useEdgeValCheck =
+        dialog->findChild<QCheckBox *>("houghUseEdgeValCheck");
+    auto *lineThickness =
+        dialog->findChild<QSpinBox *>("houghLineThicknessSpin");
+    auto *methodCombo = dialog->findChild<QComboBox *>("houghMethodCombo");
+    auto *dpSpin = dialog->findChild<QDoubleSpinBox *>("houghDpSpin");
+    auto *minDistSpin = dialog->findChild<QDoubleSpinBox *>("houghMinDistSpin");
+    auto *param1Spin = dialog->findChild<QDoubleSpinBox *>("houghParam1Spin");
+    auto *param2Spin = dialog->findChild<QDoubleSpinBox *>("houghParam2Spin");
+    auto *minRadiusSpin = dialog->findChild<QSpinBox *>("houghMinRadiusSpin");
+    auto *maxRadiusSpin = dialog->findChild<QSpinBox *>("houghMaxRadiusSpin");
+    auto *circleThickness =
+        dialog->findChild<QSpinBox *>("houghCircleThicknessSpin");
+    auto *applyButton = dialog->findChild<QPushButton *>("houghApplyButton");
+    auto *resultTable = dialog->findChild<QTableWidget *>("houghResultTable");
+    auto *countLabel = dialog->findChild<QLabel *>("houghCountLabel");
+    ASSERT_NE(modeCombo, nullptr);
+    ASSERT_NE(rhoSpin, nullptr);
+    ASSERT_NE(thetaSpin, nullptr);
+    ASSERT_NE(thresholdSpin, nullptr);
+    ASSERT_NE(srnSpin, nullptr);
+    ASSERT_NE(stnSpin, nullptr);
+    ASSERT_NE(minThetaSpin, nullptr);
+    ASSERT_NE(maxThetaSpin, nullptr);
+    ASSERT_NE(canny1Spin, nullptr);
+    ASSERT_NE(canny2Spin, nullptr);
+    ASSERT_NE(useEdgeValCheck, nullptr);
+    ASSERT_NE(lineThickness, nullptr);
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(dpSpin, nullptr);
+    ASSERT_NE(minDistSpin, nullptr);
+    ASSERT_NE(param1Spin, nullptr);
+    ASSERT_NE(param2Spin, nullptr);
+    ASSERT_NE(minRadiusSpin, nullptr);
+    ASSERT_NE(maxRadiusSpin, nullptr);
+    ASSERT_NE(circleThickness, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(resultTable, nullptr);
+    ASSERT_NE(countLabel, nullptr);
+    EXPECT_EQ(modeCombo->count(), 2);
+    EXPECT_EQ(methodCombo->count(), 2);
+
+    // Default mode: Hough lines
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    ASSERT_GT(resultTable->rowCount(), 0);
+    EXPECT_TRUE(countLabel->text().contains(QStringLiteral("直线")));
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+
+    // Circle mode on a ring image
+    const QString circlePath =
+        QDir::tempPath() + "/chameleon_hough_circle.png";
+    QFile::remove(circlePath);
+    cv::Mat circleImage(200, 200, CV_8UC1, cv::Scalar(0));
+    cv::circle(circleImage, cv::Point(100, 100), 30, cv::Scalar(255), 3);
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(circlePath.toStdString(), circleImage));
+    AppState::instance()->openImages({circlePath});
+    QCoreApplication::processEvents();
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    button->click();
+    QCoreApplication::processEvents();
+    dialog = s_window->findChild<HoughDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    modeCombo = dialog->findChild<QComboBox *>("houghModeCombo");
+    param2Spin = dialog->findChild<QDoubleSpinBox *>("houghParam2Spin");
+    auto *minRadius = dialog->findChild<QSpinBox *>("houghMinRadiusSpin");
+    auto *maxRadius = dialog->findChild<QSpinBox *>("houghMaxRadiusSpin");
+    applyButton = dialog->findChild<QPushButton *>("houghApplyButton");
+    resultTable = dialog->findChild<QTableWidget *>("houghResultTable");
+    countLabel = dialog->findChild<QLabel *>("houghCountLabel");
+    ASSERT_NE(modeCombo, nullptr);
+    ASSERT_NE(param2Spin, nullptr);
+    ASSERT_NE(minRadius, nullptr);
+    ASSERT_NE(maxRadius, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(resultTable, nullptr);
+    ASSERT_NE(countLabel, nullptr);
+
+    modeCombo->setCurrentIndex(1);
+    param2Spin->setValue(20.0);
+    minRadius->setValue(20);
+    maxRadius->setValue(40);
+    QCoreApplication::processEvents();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    ASSERT_GT(resultTable->rowCount(), 0);
+    EXPECT_TRUE(countLabel->text().contains(QStringLiteral("圆")));
+
+    dialog->close();
+    QCoreApplication::processEvents();
+    QFile::remove(linePath);
+    QFile::remove(circlePath);
 }
 
 TEST_F(MainWindowTest, GeometryDialogAppliesRotateAndUndoes)

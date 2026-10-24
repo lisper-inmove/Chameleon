@@ -811,3 +811,57 @@ TEST(BinaryTest, FitsCoverEveryContour)
     EXPECT_EQ(result.fits[1].index, 2);
     EXPECT_EQ(result.contourInfos.size(), 2u);
 }
+
+TEST(BinaryTest, ContourShapeDescriptorsUseMinAreaRect)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    // 40 x 10 rectangle: the traced point extent is 39 x 9
+    cv::rectangle(image, cv::Rect(20, 20, 40, 10), cv::Scalar(100), cv::FILLED);
+
+    ContourParams params;  // Otsu, RETR_EXTERNAL, SIMPLE
+    const auto result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 1u);
+    const auto &info = result.infos[0];
+
+    EXPECT_GT(info.minAreaRect.size.width, 0.0f);
+    EXPECT_GT(info.minAreaRect.size.height, 0.0f);
+    EXPECT_NEAR(info.aspectRatio, 39.0 / 9.0, 0.15);  // max/min of the rect
+    EXPECT_NEAR(info.extent, 1.0, 0.03);  // area / min-area-rect area
+    EXPECT_NEAR(info.solidity, 1.0, 0.01);  // convex shape
+    // The mean uses the original luminance (100), not the binarized 255
+    EXPECT_NEAR(info.meanValue, 100.0, 1.0);
+}
+
+TEST(BinaryTest, ContourSolidityDropsForNonConvexShapes)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    // U shape: two bars joined at the bottom -> one non-convex contour
+    cv::rectangle(image, cv::Rect(20, 20, 10, 40), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(60, 20, 10, 40), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(20, 50, 50, 10), cv::Scalar(255), cv::FILLED);
+
+    ContourParams params;
+    const auto result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 1u);
+    EXPECT_LT(result.infos[0].solidity, 0.8);
+    EXPECT_GT(result.infos[0].solidity, 0.3);
+    // Still a single connected component with a meaningful extent
+    EXPECT_GT(result.infos[0].extent, 0.0);
+    EXPECT_LT(result.infos[0].extent, 1.0);
+}
+
+TEST(BinaryTest, ObjectPixelMeanUsesEachContourRegion)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(10, 10, 20, 20), cv::Scalar(80), cv::FILLED);
+    cv::rectangle(image, cv::Rect(60, 60, 20, 20), cv::Scalar(200), cv::FILLED);
+
+    ContourParams params;
+    params.otsu = false;
+    params.threshold = 10;  // both fills become foreground
+    const auto result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 2u);
+    // The mean comes from the original luminance, not the binarized 255
+    EXPECT_NEAR(result.infos[0].meanValue, 80.0, 1.0);
+    EXPECT_NEAR(result.infos[1].meanValue, 200.0, 1.0);
+}

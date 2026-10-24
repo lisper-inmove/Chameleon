@@ -17,6 +17,7 @@
 #include "processing/binary.h"
 #include "processing/filter_processor.h"
 #include "processing/geometry.h"
+#include "processing/hough.h"
 #include "processing/image_io.h"
 #include "ui/image_viewer_widget.h"
 
@@ -1063,6 +1064,37 @@ TEST_F(ImageViewerTest, ContourFitsAreAppliedAndUndoable)
     ASSERT_EQ(result.contourInfos.size(), 1u);
     ASSERT_EQ(result.fits.size(), 1u);
     EXPECT_TRUE(result.fits.front().valid);
+
+    cv::Mat diff;
+    cv::absdiff(m_viewer->currentImage(), original, diff);
+    EXPECT_GT(cv::countNonZero(diff.reshape(1)), 0);
+
+    m_viewer->undo();
+    cv::Mat restored;
+    cv::absdiff(m_viewer->currentImage(), original, restored);
+    EXPECT_EQ(cv::countNonZero(restored.reshape(1)), 0);
+
+    QFile::remove(path);
+}
+
+TEST_F(ImageViewerTest, HoughLinesAreDrawnAndUndoable)
+{
+    const QString path = QDir::tempPath() + "/chameleon_hough_viewer.png";
+    QFile::remove(path);
+    cv::Mat source(200, 200, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::line(source, cv::Point(100, 20), cv::Point(100, 180),
+             cv::Scalar(255, 255, 255), 3);
+    ASSERT_TRUE(chameleon::ImageIO::imwriteUtf8(path.toStdString(), source));
+
+    AppState::instance()->openImages({path});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const cv::Mat original = m_viewer->currentImage().clone();
+
+    chameleon::HoughLinesParams params;
+    params.threshold = 100;
+    const auto result = m_viewer->applyHoughLines(params);
+    EXPECT_FALSE(result.lines.empty());
 
     cv::Mat diff;
     cv::absdiff(m_viewer->currentImage(), original, diff);

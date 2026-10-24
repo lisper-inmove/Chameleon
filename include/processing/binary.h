@@ -106,6 +106,13 @@ struct ContourInfo {
     double area = 0.0;    // cv::contourArea
     double perimeter = 0.0;  // cv::arcLength(contour, true)
     cv::Rect boundingBox;    // cv::boundingRect
+    cv::RotatedRect minAreaRect;  // cv::minAreaRect
+    // Shape descriptors derived from the minimum-area rectangle
+    double aspectRatio = 0.0;  // longer side / shorter side (>= 1)
+    double extent = 0.0;       // contour area / min-area-rect area
+    double solidity = 0.0;     // contour area / convex hull area
+    // Mean luminance of the object pixels (filled contour on the source)
+    double meanValue = 0.0;
 };
 
 struct ContourResult {

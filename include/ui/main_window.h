@@ -44,6 +44,7 @@ private:
     void openThresholdDialog();
     void openConnectedComponentsDialog();
     void openContourDialog();
+    void openHoughDialog();
     void openGeometryDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
