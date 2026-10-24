@@ -1788,3 +1788,11 @@ TEST_F(MainWindowTest, ZoomingOnePaneDoesNotAffectTheOther)
     EXPECT_NEAR(displayedScale(processed), 2.0, 1e-6);
     EXPECT_DOUBLE_EQ(AppState::instance()->zoomFactor(), 2.0) << "shared zoom untouched";
 }
+
+TEST_F(MainWindowTest, ToolbarExposesOpenGLPreview)
+{
+    // The action is not clicked here: it opens a native GLFW window
+    auto *button = s_window->findChild<QToolButton *>("openGLButton");
+    ASSERT_NE(button, nullptr);
+    EXPECT_EQ(button->text(), QStringLiteral("OpenGL..."));
+}

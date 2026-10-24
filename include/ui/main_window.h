@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <QMainWindow>
 
 class QLabel;
@@ -10,12 +12,14 @@ namespace chameleon {
 
 class FilterPanel;
 class ImageViewerWidget;
+class OpenGLImageWindow;
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
     void applyTheme();
 
@@ -45,6 +49,7 @@ private:
     void openConnectedComponentsDialog();
     void openContourDialog();
     void openHoughDialog();
+    void openOpenGLPreview();
     void openGeometryDialog();
     void reloadCurrentImage();
     void rebuildThumbnails();
@@ -74,6 +79,7 @@ private:
     QAction *m_actualAction = nullptr;
     QAction *m_resetZoomAction = nullptr;
     QMenu *m_recentMenu = nullptr;
+    std::unique_ptr<OpenGLImageWindow> m_openGlWindow;
 };
 
 } // namespace chameleon

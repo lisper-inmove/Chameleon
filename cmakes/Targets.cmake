@@ -20,6 +20,7 @@ target_sources(chameleon_lib PRIVATE
     include/processing/hough.h
     include/processing/image_io.h
     include/processing/noise.h
+    include/rendering/opengl_image.h
     include/ui/back_project_dialog.h
     include/ui/connected_components_dialog.h
     include/ui/contour_dialog.h
@@ -49,6 +50,7 @@ target_sources(chameleon_lib PRIVATE
     src/processing/hough.cc
     src/processing/image_io.cc
     src/processing/noise.cc
+    src/rendering/opengl_image.cc
     src/ui/back_project_dialog.cc
     src/ui/connected_components_dialog.cc
     src/ui/contour_dialog.cc
@@ -84,6 +86,9 @@ target_link_libraries(chameleon_lib PUBLIC
     opencv_imgcodecs
     spdlog::spdlog
     yaml-cpp::yaml-cpp
+    glfw
+    glad
+    OpenGL::GL
 )
 
 # The prebuilt spdlog is a compiled library (spdlog.lib), but its installed

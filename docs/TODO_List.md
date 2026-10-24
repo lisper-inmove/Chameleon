@@ -156,4 +156,5 @@
 - [ ] 国际化(i18n)与中文界面
 - [ ] CI(GitHub Actions 构建 + 测试)
 - [x] clangd / clang-tidy 代码补全与静态检查(compile_commands.json 自动生成)
+- [x] OpenGL 接入(GLFW 3.5.1 源码构建 + GLAD 4.6 loader;OpenGL 预览窗口 + 离屏 FBO 渲染管线;路径可用 CHAMELEON_GLFW_SOURCE_DIR / CHAMELEON_GLAD_DIR 覆盖)
 - [ ] 完善 README 与使用文档

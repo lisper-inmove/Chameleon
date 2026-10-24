@@ -24,6 +24,7 @@ add_executable(chameleon_tests
     tests/histogram_test.cc
     tests/hough_test.cc
     tests/noise_test.cc
+    tests/opengl_test.cc
     tests/image_viewer_test.cc
     tests/main_window_test.cc
 )

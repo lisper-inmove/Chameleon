@@ -35,6 +35,7 @@
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
 #include "ui/hough_dialog.h"
+#include "rendering/opengl_image.h"
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/geometry_dialog.h"
@@ -240,6 +241,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     applyTheme();
     onCurrentImageChanged();
     rebuildRecentFilesMenu();
+}
+
+MainWindow::~MainWindow()
+{
+    if (m_openGlWindow)
+        m_openGlWindow->close();
 }
 
 void MainWindow::setupMenus()
@@ -464,6 +471,16 @@ void MainWindow::setupToolBar()
     connect(geometryButton, &QToolButton::clicked,
             this, &MainWindow::openGeometryDialog);
     toolBar->addWidget(geometryButton);
+
+    auto *openGLButton = new QToolButton(toolBar);
+    openGLButton->setText(QStringLiteral("OpenGL..."));
+    openGLButton->setObjectName("openGLButton");
+    openGLButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    openGLButton->setToolTip(
+        QStringLiteral("在 OpenGL 窗口中预览当前处理结果"));
+    connect(openGLButton, &QToolButton::clicked,
+            this, &MainWindow::openOpenGLPreview);
+    toolBar->addWidget(openGLButton);
 
     auto *spacer = new QWidget(toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -897,6 +914,17 @@ void MainWindow::openContourDialog()
                     2500);
             });
     dialog->show();
+}
+
+void MainWindow::openOpenGLPreview()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (!m_openGlWindow)
+        m_openGlWindow = std::make_unique<OpenGLImageWindow>();
+    m_openGlWindow->showImage(m_viewer->currentImage(),
+                              "Chameleon - OpenGL Preview");
+    statusBar()->showMessage(QStringLiteral("OpenGL 预览窗口已启动"), 2500);
 }
 
 void MainWindow::openHoughDialog()
