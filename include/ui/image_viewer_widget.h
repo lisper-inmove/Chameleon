@@ -16,6 +16,7 @@
 
 #include "app/app_state.h"
 #include "processing/binary.h"
+#include "processing/contour_match.h"
 #include "processing/filter_processor.h"
 #include "processing/geometry.h"
 #include "processing/hough.h"
@@ -116,6 +117,9 @@ public:
     // One-shot Hough transform detection; undoable
     HoughResult applyHoughLines(const HoughLinesParams &params);
     HoughResult applyHoughCircles(const HoughCirclesParams &params);
+    // One-shot contour shape matching against a template image; undoable
+    ContourMatchResult applyContourMatch(const cv::Mat &templateImage,
+                                         const ContourMatchParams &params);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);

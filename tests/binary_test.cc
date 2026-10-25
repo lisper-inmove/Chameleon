@@ -865,3 +865,41 @@ TEST(BinaryTest, ObjectPixelMeanUsesEachContourRegion)
     EXPECT_NEAR(result.infos[0].meanValue, 80.0, 1.0);
     EXPECT_NEAR(result.infos[1].meanValue, 200.0, 1.0);
 }
+
+TEST(BinaryTest, ContourEnclosingCircleMatchesTheShape)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::circle(image, cv::Point(50, 50), 30, cv::Scalar(255), cv::FILLED);
+
+    ContourParams params;
+    const auto result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 1u);
+    const auto &info = result.infos[0];
+    EXPECT_NEAR(info.enclosingCircleCenter.x, 50.0f, 1.5f);
+    EXPECT_NEAR(info.enclosingCircleCenter.y, 50.0f, 1.5f);
+    EXPECT_NEAR(info.enclosingCircleRadius, 30.0f, 1.5f);
+}
+
+TEST(BinaryTest, PointPolygonTestReportsDistanceInsideAndOutside)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    // Boundary point extent: x 20..59, y 20..49
+    cv::rectangle(image, cv::Rect(20, 20, 40, 30), cv::Scalar(255), cv::FILLED);
+
+    ContourParams params;
+    params.queryPoint = cv::Point2f(40.0f, 35.0f);  // inside, 14 from y=49
+    params.measureDistance = true;
+    auto result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 1u);
+    EXPECT_NEAR(result.infos[0].pointTest, 14.0, 1.5);
+
+    params.queryPoint = cv::Point2f(5.0f, 35.0f);  // outside, 15 from x=20
+    result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 1u);
+    EXPECT_NEAR(result.infos[0].pointTest, -15.0, 1.5);
+
+    params.measureDistance = false;  // sign only
+    result = findAndDrawContours(image, params);
+    ASSERT_EQ(result.infos.size(), 1u);
+    EXPECT_EQ(result.infos[0].pointTest, -1.0);
+}

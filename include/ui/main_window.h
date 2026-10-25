@@ -48,6 +48,7 @@ private:
     void openThresholdDialog();
     void openConnectedComponentsDialog();
     void openContourDialog();
+    void matchContourShapes();
     void openHoughDialog();
     void openOpenGLPreview();
     void openGeometryDialog();

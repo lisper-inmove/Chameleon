@@ -572,6 +572,17 @@ HoughResult ImageViewerWidget::applyHoughCircles(
     return result;
 }
 
+ContourMatchResult ImageViewerWidget::applyContourMatch(
+    const cv::Mat &templateImage, const ContourMatchParams &params)
+{
+    ContourMatchResult result;
+    applyOperation([&templateImage, &params, &result](const cv::Mat &image) {
+        result = chameleon::matchContours(image, templateImage, params);
+        return result.image;
+    });
+    return result;
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo

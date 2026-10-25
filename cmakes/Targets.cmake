@@ -14,6 +14,7 @@ target_sources(chameleon_lib PRIVATE
     include/app/app_state.h
     include/config/config_manager.h
     include/processing/binary.h
+    include/processing/contour_match.h
     include/processing/filter_processor.h
     include/processing/geometry.h
     include/processing/histogram.h
@@ -24,6 +25,7 @@ target_sources(chameleon_lib PRIVATE
     include/ui/back_project_dialog.h
     include/ui/connected_components_dialog.h
     include/ui/contour_dialog.h
+    include/ui/contour_match_dialog.h
     include/ui/convolution_dialog.h
     include/ui/edge_dialog.h
     include/ui/filter_panel.h
@@ -44,6 +46,7 @@ target_sources(chameleon_lib PRIVATE
     src/app/app_state.cc
     src/config/config_manager.cc
     src/processing/binary.cc
+    src/processing/contour_match.cc
     src/processing/filter_processor.cc
     src/processing/geometry.cc
     src/processing/histogram.cc
@@ -54,6 +57,7 @@ target_sources(chameleon_lib PRIVATE
     src/ui/back_project_dialog.cc
     src/ui/connected_components_dialog.cc
     src/ui/contour_dialog.cc
+    src/ui/contour_match_dialog.cc
     src/ui/convolution_dialog.cc
     src/ui/edge_dialog.cc
     src/ui/filter_panel.cc

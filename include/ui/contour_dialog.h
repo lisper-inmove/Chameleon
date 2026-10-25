@@ -32,6 +32,8 @@ public:
     // Fills the fit results list for the given method
     void setContourFits(const std::vector<ContourFitInfo> &fits,
                         ContourFitType type);
+    // Seeds the cv::pointPolygonTest query point (e.g. the image centre)
+    void setQueryPoint(const cv::Point2f &point);
 
 signals:
     void applyRequested();
@@ -50,6 +52,9 @@ private:
     QSpinBox *m_thicknessSpin = nullptr;
     QComboBox *m_lineTypeCombo = nullptr;
     QCheckBox *m_largestCheck = nullptr;
+    QSpinBox *m_queryXSpin = nullptr;
+    QSpinBox *m_queryYSpin = nullptr;
+    QCheckBox *m_measureDistCheck = nullptr;
     QLabel *m_countLabel = nullptr;
     QTableWidget *m_statsTable = nullptr;
     // Fitting controls

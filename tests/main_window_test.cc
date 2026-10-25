@@ -37,6 +37,7 @@
 #include "ui/convolution_dialog.h"
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
+#include "ui/contour_match_dialog.h"
 #include "ui/hough_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
@@ -55,6 +56,7 @@ using chameleon::HistogramCompareDialog;
 using chameleon::BackProjectDialog;
 using chameleon::ConnectedComponentsDialog;
 using chameleon::ContourDialog;
+using chameleon::ContourMatchDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::HoughDialog;
 using chameleon::EdgeDialog;
@@ -1271,6 +1273,10 @@ TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
     auto *applyButton = dialog->findChild<QPushButton *>("contourApplyButton");
     auto *countLabel = dialog->findChild<QLabel *>("contourCountLabel");
     auto *statsTable = dialog->findChild<QTableWidget *>("contourStatsTable");
+    auto *queryXSpin = dialog->findChild<QSpinBox *>("contourQueryXSpin");
+    auto *queryYSpin = dialog->findChild<QSpinBox *>("contourQueryYSpin");
+    auto *measureDistCheck =
+        dialog->findChild<QCheckBox *>("contourMeasureDistCheck");
     ASSERT_NE(modeCombo, nullptr);
     ASSERT_NE(methodCombo, nullptr);
     ASSERT_NE(offsetXSpin, nullptr);
@@ -1283,6 +1289,9 @@ TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
     ASSERT_NE(applyButton, nullptr);
     ASSERT_NE(countLabel, nullptr);
     ASSERT_NE(statsTable, nullptr);
+    ASSERT_NE(queryXSpin, nullptr);
+    ASSERT_NE(queryYSpin, nullptr);
+    ASSERT_NE(measureDistCheck, nullptr);
 
     // All cv::findContours parameters are exposed
     EXPECT_EQ(modeCombo->count(), 4);    // EXTERNAL / LIST / CCOMP / TREE
@@ -1301,9 +1310,9 @@ TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
     EXPECT_TRUE(countLabel->text().contains(QStringLiteral("轮廓")));
     EXPECT_TRUE(action("undoAction")->isEnabled());
 
-    // Every contour is listed with its number, area, perimeter, box and
-    // the minAreaRect shape descriptors
-    EXPECT_EQ(statsTable->columnCount(), 8);
+    // Every contour is listed with its number, area, perimeter, box, the
+    // minAreaRect descriptors, enclosing circle and point test
+    EXPECT_EQ(statsTable->columnCount(), 10);
     ASSERT_GT(statsTable->rowCount(), 0);
     EXPECT_EQ(statsTable->item(0, 0)->text(), QStringLiteral("1"));
     EXPECT_FALSE(statsTable->item(0, 1)->text().isEmpty());  // area
@@ -1313,6 +1322,8 @@ TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
     EXPECT_FALSE(statsTable->item(0, 5)->text().isEmpty());  // extent
     EXPECT_FALSE(statsTable->item(0, 6)->text().isEmpty());  // solidity
     EXPECT_FALSE(statsTable->item(0, 7)->text().isEmpty());  // pixel mean
+    EXPECT_FALSE(statsTable->item(0, 8)->text().isEmpty());  // enclosing circle
+    EXPECT_FALSE(statsTable->item(0, 9)->text().isEmpty());  // point test
 
     dialog->close();
     QCoreApplication::processEvents();
@@ -1406,6 +1417,79 @@ TEST_F(MainWindowTest, ContourFitButtonsApplyAndListResults)
     dialog->close();
     QCoreApplication::processEvents();
     QFile::remove(path);
+}
+
+TEST_F(MainWindowTest, ContourMatchDialogMatchesATemplate)
+{
+    const QString queryPath =
+        QDir::tempPath() + "/chameleon_match_ui_query.png";
+    const QString templatePath =
+        QDir::tempPath() + "/chameleon_match_ui_template.png";
+    QFile::remove(queryPath);
+    QFile::remove(templatePath);
+
+    cv::Mat query(120, 120, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(query, cv::Rect(10, 10, 30, 30), cv::Scalar::all(255),
+                  cv::FILLED);
+    cv::circle(query, cv::Point(80, 85), 18, cv::Scalar::all(255),
+               cv::FILLED);
+    cv::Mat templ(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::circle(templ, cv::Point(50, 50), 25, cv::Scalar::all(255),
+               cv::FILLED);
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(queryPath.toStdString(), query));
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(templatePath.toStdString(), templ));
+
+    AppState::instance()->openImages({queryPath});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("contourMatchButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ContourMatchDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *targetCombo =
+        dialog->findChild<QComboBox *>("contourMatchTargetCombo");
+    auto *browseButton =
+        dialog->findChild<QPushButton *>("contourMatchBrowseButton");
+    auto *methodCombo =
+        dialog->findChild<QComboBox *>("contourMatchMethodCombo");
+    auto *parameterSpin =
+        dialog->findChild<QDoubleSpinBox *>("contourMatchParameterSpin");
+    auto *applyButton =
+        dialog->findChild<QPushButton *>("contourMatchApplyButton");
+    auto *table = dialog->findChild<QTableWidget *>("contourMatchTable");
+    auto *bestLabel = dialog->findChild<QLabel *>("contourMatchBestLabel");
+    ASSERT_NE(targetCombo, nullptr);
+    ASSERT_NE(browseButton, nullptr);
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(parameterSpin, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(table, nullptr);
+    ASSERT_NE(bestLabel, nullptr);
+    EXPECT_EQ(methodCombo->count(), 3);  // I1 / I2 / I3
+    EXPECT_EQ(table->columnCount(), 10);
+
+    const QImage before = viewer->grab().toImage();
+    dialog->addTargetPath(templatePath);
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    ASSERT_EQ(table->rowCount(), 2);
+    EXPECT_TRUE(bestLabel->text().contains(QStringLiteral("#2")));
+    // Highest similarity first: the best contour (#2, the circle) is row 0
+    EXPECT_EQ(table->item(0, 0)->text(), QStringLiteral("2"));
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+    QFile::remove(queryPath);
+    QFile::remove(templatePath);
 }
 
 TEST_F(MainWindowTest, HoughDialogExposesParametersAndApplies)

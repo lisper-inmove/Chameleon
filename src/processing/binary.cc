@@ -311,6 +311,10 @@ SortedContours findSortedContours(const cv::Mat &image,
         cv::convexHull(contour, hull);
         const double hullArea = cv::contourArea(hull);
         info.solidity = hullArea > 0.0 ? info.area / hullArea : 0.0;
+        cv::minEnclosingCircle(contour, info.enclosingCircleCenter,
+                               info.enclosingCircleRadius);
+        info.pointTest = cv::pointPolygonTest(contour, params.queryPoint,
+                                              params.measureDistance);
 
         // Mean luminance of the object pixels: the filled contour as a
         // mask over the original image, computed in the bounding box only
@@ -432,6 +436,18 @@ ContourResult findAndDrawContours(const cv::Mat &image,
     result.contours = std::move(found.points);
     result.infos = std::move(found.infos);
     result.count = int(result.contours.size());
+    return result;
+}
+
+DetectedContours detectContours(const cv::Mat &image,
+                                const ContourParams &params)
+{
+    DetectedContours result;
+    if (image.empty())
+        return result;
+    SortedContours found = findSortedContours(image, params);
+    result.contours = std::move(found.points);
+    result.infos = std::move(found.infos);
     return result;
 }
 

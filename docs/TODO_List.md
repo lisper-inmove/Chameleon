@@ -59,6 +59,8 @@
 - [x] 轮廓发现(findContours:检索模式 / 近似方法 / 偏移可调;drawContours 绘制,线宽 / 线型 / 仅最大轮廓;轮廓编号 + contourArea / arcLength / boundingRect 列表;二值阈值 / Otsu / 反相,支持选区,可撤销)
 - [x] 轮廓拟合(fitEllipse / fitLine(距离类型、C、reps、aeps)/ approxPolyDP(epsilon、闭合);每种拟合一个独立按钮,全部参数可配置,拟合结果列表)
 - [x] 轮廓形状描述(minAreaRect 横纵比 / 延展度 / 实密度 / 对象像素均值,逐轮廓列表)
+- [x] 轮廓辅助检测(minEnclosingCircle 外接圆;pointPolygonTest 点包含测试,查询点与测距可配置)
+- [x] 轮廓匹配(cv::moments + cv::HuMoments + cv::matchShapes;模板图片选择,I1/I2/I3 方法,匹配值与 Hu 矩列表按相似度从高到低排序,最佳匹配高亮,支持选区,可撤销)
 - [x] 霍夫直线检测(HoughLines:rho / theta / 累加阈值 / srn / stn / 角度范围 / use_edgeval / Canny 预处理可调;检测结果列表)
 - [x] 霍夫圆检测(HoughCircles:method / dp / minDist / param1 / param2 / 半径范围可调;检测结果列表)
 - [x] 模糊:均值 / 高斯 / 中值(卷积对话框,参数可调,支持选区,可撤销)

@@ -122,16 +122,37 @@ ContourDialog::ContourDialog(QWidget *parent) : QDialog(parent)
     m_largestCheck = new QCheckBox(QStringLiteral("只绘制最大轮廓"), this);
     m_largestCheck->setObjectName(QStringLiteral("contourLargestCheck"));
 
+    // cv::pointPolygonTest query controls
+    m_queryXSpin = new QSpinBox(this);
+    m_queryXSpin->setObjectName(QStringLiteral("contourQueryXSpin"));
+    m_queryXSpin->setRange(0, 16384);
+    m_queryYSpin = new QSpinBox(this);
+    m_queryYSpin->setObjectName(QStringLiteral("contourQueryYSpin"));
+    m_queryYSpin->setRange(0, 16384);
+    m_measureDistCheck = new QCheckBox(QStringLiteral("测距"), this);
+    m_measureDistCheck->setObjectName(
+        QStringLiteral("contourMeasureDistCheck"));
+    m_measureDistCheck->setChecked(true);
+
+    auto *queryRow = new QWidget(this);
+    auto *queryLayout = new QHBoxLayout(queryRow);
+    queryLayout->setContentsMargins(0, 0, 0, 0);
+    queryLayout->addWidget(m_queryXSpin);
+    queryLayout->addWidget(new QLabel(QStringLiteral(","), queryRow));
+    queryLayout->addWidget(m_queryYSpin);
+    queryLayout->addWidget(m_measureDistCheck);
+
     m_countLabel = new QLabel(QStringLiteral("检测到 -- 个轮廓"), this);
     m_countLabel->setObjectName(QStringLiteral("contourCountLabel"));
 
-    m_statsTable = new QTableWidget(0, 8, this);
+    m_statsTable = new QTableWidget(0, 10, this);
     m_statsTable->setObjectName(QStringLiteral("contourStatsTable"));
     m_statsTable->setHorizontalHeaderLabels(
         {QStringLiteral("编号"), QStringLiteral("面积"),
          QStringLiteral("周长"), QStringLiteral("包围盒 (x, y, 宽, 高)"),
          QStringLiteral("横纵比"), QStringLiteral("延展度"),
-         QStringLiteral("实密度"), QStringLiteral("均值")});
+         QStringLiteral("实密度"), QStringLiteral("均值"),
+         QStringLiteral("外接圆 (圆心, 半径)"), QStringLiteral("点包含")});
     m_statsTable->horizontalHeader()->setStretchLastSection(true);
     m_statsTable->verticalHeader()->setVisible(false);
     m_statsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -242,6 +263,7 @@ ContourDialog::ContourDialog(QWidget *parent) : QDialog(parent)
     form->addRow(QStringLiteral("二值化:"), binaryRow);
     form->addRow(QStringLiteral("线宽:"), m_thicknessSpin);
     form->addRow(QStringLiteral("线型:"), m_lineTypeCombo);
+    form->addRow(QStringLiteral("点测试:"), queryRow);
     form->addRow(QString(), m_largestCheck);
 
     auto *layout = new QVBoxLayout(this);
@@ -251,7 +273,7 @@ ContourDialog::ContourDialog(QWidget *parent) : QDialog(parent)
     layout->addWidget(tabs, 1);
     layout->addWidget(hint);
     layout->addWidget(applyButton);
-    resize(780, 720);
+    resize(940, 740);
 
     connect(m_otsuCheck, &QCheckBox::toggled, this, [this] {
         updateThresholdEnabled();
@@ -277,7 +299,16 @@ ContourParams ContourDialog::contourParams() const
     params.thickness = m_thicknessSpin->value();
     params.lineType = currentValue(m_lineTypeCombo, kLineTypes, 3);
     params.largestOnly = m_largestCheck->isChecked();
+    params.queryPoint = cv::Point2f(float(m_queryXSpin->value()),
+                                    float(m_queryYSpin->value()));
+    params.measureDistance = m_measureDistCheck->isChecked();
     return params;
+}
+
+void ContourDialog::setQueryPoint(const cv::Point2f &point)
+{
+    m_queryXSpin->setValue(int(std::lround(point.x)));
+    m_queryYSpin->setValue(int(std::lround(point.y)));
 }
 
 void ContourDialog::setContourInfos(const std::vector<ContourInfo> &infos)
@@ -313,6 +344,24 @@ void ContourDialog::setContourInfos(const std::vector<ContourInfo> &infos)
         m_statsTable->setItem(
             row, 7,
             new QTableWidgetItem(QString::number(info.meanValue, 'f', 1)));
+        m_statsTable->setItem(
+            row, 8,
+            new QTableWidgetItem(
+                QStringLiteral("(%1, %2) r=%3")
+                    .arg(info.enclosingCircleCenter.x, 0, 'f', 1)
+                    .arg(info.enclosingCircleCenter.y, 0, 'f', 1)
+                    .arg(info.enclosingCircleRadius, 0, 'f', 1)));
+
+        QString pointText;
+        if (info.pointTest > 0.0)
+            pointText = QStringLiteral("内部");
+        else if (info.pointTest < 0.0)
+            pointText = QStringLiteral("外部");
+        else
+            pointText = QStringLiteral("边界");
+        if (m_measureDistCheck->isChecked())
+            pointText += QStringLiteral(" %1").arg(info.pointTest, 0, 'f', 1);
+        m_statsTable->setItem(row, 9, new QTableWidgetItem(pointText));
     }
 }
 

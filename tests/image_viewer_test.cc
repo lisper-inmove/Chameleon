@@ -15,6 +15,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "processing/binary.h"
+#include "processing/contour_match.h"
 #include "processing/filter_processor.h"
 #include "processing/geometry.h"
 #include "processing/hough.h"
@@ -1106,6 +1107,50 @@ TEST_F(ImageViewerTest, HoughLinesAreDrawnAndUndoable)
     EXPECT_EQ(cv::countNonZero(restored.reshape(1)), 0);
 
     QFile::remove(path);
+}
+
+TEST_F(ImageViewerTest, ContourMatchingWithATemplateIsUndoable)
+{
+    const QString queryPath = QDir::tempPath() + "/chameleon_match_query.png";
+    const QString templatePath =
+        QDir::tempPath() + "/chameleon_match_template.png";
+    QFile::remove(queryPath);
+    QFile::remove(templatePath);
+
+    cv::Mat query(120, 120, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(query, cv::Rect(10, 10, 30, 30), cv::Scalar::all(255),
+                  cv::FILLED);
+    cv::circle(query, cv::Point(80, 85), 18, cv::Scalar::all(255),
+               cv::FILLED);
+    cv::Mat templ(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::circle(templ, cv::Point(50, 50), 25, cv::Scalar::all(255),
+               cv::FILLED);
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(queryPath.toStdString(), query));
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(templatePath.toStdString(), templ));
+
+    AppState::instance()->openImages({queryPath});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const cv::Mat original = m_viewer->currentImage().clone();
+
+    chameleon::ContourMatchParams params;
+    const auto result = m_viewer->applyContourMatch(templ, params);
+    ASSERT_EQ(result.matches.size(), 2u);
+    EXPECT_EQ(result.bestIndex, 2);  // the circle matches the circle template
+
+    cv::Mat diff;
+    cv::absdiff(m_viewer->currentImage(), original, diff);
+    EXPECT_GT(cv::countNonZero(diff.reshape(1)), 0);
+
+    m_viewer->undo();
+    cv::Mat restored;
+    cv::absdiff(m_viewer->currentImage(), original, restored);
+    EXPECT_EQ(cv::countNonZero(restored.reshape(1)), 0);
+
+    QFile::remove(queryPath);
+    QFile::remove(templatePath);
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

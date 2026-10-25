@@ -34,6 +34,7 @@
 #include "ui/back_project_dialog.h"
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
+#include "ui/contour_match_dialog.h"
 #include "ui/hough_dialog.h"
 #include "rendering/opengl_image.h"
 #include "ui/convolution_dialog.h"
@@ -455,6 +456,14 @@ void MainWindow::setupToolBar()
     connect(contourButton, &QToolButton::clicked,
             this, &MainWindow::openContourDialog);
     toolBar->addWidget(contourButton);
+
+    auto *contourMatchButton = new QToolButton(toolBar);
+    contourMatchButton->setText(QStringLiteral("形状匹配..."));
+    contourMatchButton->setObjectName("contourMatchButton");
+    contourMatchButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(contourMatchButton, &QToolButton::clicked,
+            this, &MainWindow::matchContourShapes);
+    toolBar->addWidget(contourMatchButton);
 
     auto *houghButton = new QToolButton(toolBar);
     houghButton->setText(QStringLiteral("霍夫..."));
@@ -883,6 +892,9 @@ void MainWindow::openContourDialog()
     if (focusExisting<ContourDialog>(this))
         return;
     auto *dialog = new ContourDialog(this);
+    const cv::Mat initial = m_viewer->currentImage();
+    dialog->setQueryPoint(
+        cv::Point2f(float(initial.cols) / 2.0f, float(initial.rows) / 2.0f));
     connect(dialog, &ContourDialog::applyRequested, this, [this, dialog] {
         const auto infos = m_viewer->applyContours(dialog->contourParams());
         dialog->setContourInfos(infos);
@@ -925,6 +937,34 @@ void MainWindow::openOpenGLPreview()
     m_openGlWindow->showImage(m_viewer->currentImage(),
                               "Chameleon - OpenGL Preview");
     statusBar()->showMessage(QStringLiteral("OpenGL 预览窗口已启动"), 2500);
+}
+
+void MainWindow::matchContourShapes()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<ContourMatchDialog>(this))
+        return;
+    auto *dialog =
+        new ContourMatchDialog(AppState::instance()->images(), this);
+    connect(dialog, &ContourMatchDialog::applyRequested, this,
+            [this, dialog] {
+                const cv::Mat templateImage = dialog->currentTemplateImage();
+                if (templateImage.empty()) {
+                    statusBar()->showMessage(
+                        QStringLiteral("无法加载模板图片"), 2500);
+                    return;
+                }
+                const auto result = m_viewer->applyContourMatch(
+                    templateImage, dialog->contourMatchParams());
+                dialog->setResult(result);
+                statusBar()->showMessage(
+                    QStringLiteral("已匹配 %1 个轮廓,最佳 #%2")
+                        .arg(result.matches.size())
+                        .arg(result.bestIndex),
+                    2500);
+            });
+    dialog->show();
 }
 
 void MainWindow::openHoughDialog()

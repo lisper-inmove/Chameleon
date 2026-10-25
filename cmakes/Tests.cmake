@@ -19,6 +19,7 @@ add_executable(chameleon_tests
     tests/file_utils_test.cc
     tests/app_state_test.cc
     tests/binary_test.cc
+    tests/contour_match_test.cc
     tests/geometry_test.cc
     tests/filter_processor_test.cc
     tests/histogram_test.cc

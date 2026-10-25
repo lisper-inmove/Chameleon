@@ -98,6 +98,9 @@ struct ContourParams {
     int thickness = 2;
     int lineType = cv::LINE_AA;
     bool largestOnly = false;  // draw only the largest-area contour
+    // cv::pointPolygonTest query applied to every contour
+    cv::Point2f queryPoint{0.0f, 0.0f};
+    bool measureDistance = true;
 };
 
 // Per-contour measurements, one entry per contour in discovery order.
@@ -113,6 +116,12 @@ struct ContourInfo {
     double solidity = 0.0;     // contour area / convex hull area
     // Mean luminance of the object pixels (filled contour on the source)
     double meanValue = 0.0;
+    // cv::minEnclosingCircle
+    cv::Point2f enclosingCircleCenter{0.0f, 0.0f};
+    float enclosingCircleRadius = 0.0f;
+    // cv::pointPolygonTest(contour, queryPoint, measureDistance):
+    // positive inside, 0 on the edge, negative outside
+    double pointTest = 0.0;
 };
 
 struct ContourResult {
@@ -129,6 +138,16 @@ struct ContourResult {
 // an alpha channel is preserved.
 ContourResult findAndDrawContours(const cv::Mat &image,
                                   const ContourParams &params);
+
+// Detection without drawing/measuring output: the sorted contours (with
+// their ContourInfo entries), for tools that consume the point sets.
+struct DetectedContours {
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<ContourInfo> infos;
+};
+
+DetectedContours detectContours(const cv::Mat &image,
+                                const ContourParams &params);
 
 // Contour fitting: cv::fitEllipse / cv::fitLine / cv::approxPolyDP.
 enum class ContourFitType { Ellipse, Line, Polygon };
