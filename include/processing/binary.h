@@ -149,6 +149,30 @@ struct DetectedContours {
 DetectedContours detectContours(const cv::Mat &image,
                                 const ContourParams &params);
 
+// Convex hull (cv::convexHull) and convexity test (cv::isContourConvex).
+struct ConvexHullParams {
+    bool clockwise = false;    // cv::convexHull orientation
+    bool returnPoints = true;  // false: hull points come back as indices
+};
+
+struct ConvexHullInfo {
+    int index = 0;   // contour number (1-based)
+    bool convex = false;
+    int hullPointCount = 0;
+    double hullArea = 0.0;
+    double hullPerimeter = 0.0;
+};
+
+struct ConvexHullResult {
+    std::vector<ConvexHullInfo> infos;
+    // Input with the contours (green, thin) and hulls (red) drawn
+    cv::Mat image;
+};
+
+ConvexHullResult findConvexHulls(const cv::Mat &image,
+                                 const ContourParams &contourParams,
+                                 const ConvexHullParams &hullParams);
+
 // Contour fitting: cv::fitEllipse / cv::fitLine / cv::approxPolyDP.
 enum class ContourFitType { Ellipse, Line, Polygon };
 

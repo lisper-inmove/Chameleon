@@ -49,6 +49,7 @@ private:
     void openConnectedComponentsDialog();
     void openContourDialog();
     void matchContourShapes();
+    void openConvexHullDialog();
     void openHoughDialog();
     void openOpenGLPreview();
     void openGeometryDialog();

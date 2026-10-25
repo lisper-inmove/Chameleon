@@ -14,8 +14,10 @@ using chameleon::ConnectedComponentsParams;
 using chameleon::ContourFitParams;
 using chameleon::ContourFitType;
 using chameleon::ContourParams;
+using chameleon::ConvexHullParams;
 using chameleon::findAndDrawContours;
 using chameleon::findAndFitContours;
+using chameleon::findConvexHulls;
 using chameleon::applyThreshold;
 using chameleon::ThresholdMethod;
 using chameleon::ThresholdParams;
@@ -902,4 +904,85 @@ TEST(BinaryTest, PointPolygonTestReportsDistanceInsideAndOutside)
     result = findAndDrawContours(image, params);
     ASSERT_EQ(result.infos.size(), 1u);
     EXPECT_EQ(result.infos[0].pointTest, -1.0);
+}
+
+TEST(BinaryTest, ConvexHullDetectsConcaveContours)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    // U shape: two bars joined at the bottom -> one concave contour
+    cv::rectangle(image, cv::Rect(20, 20, 10, 40), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(60, 20, 10, 40), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(20, 50, 50, 10), cv::Scalar(255), cv::FILLED);
+
+    ContourParams contourParams;
+    ConvexHullParams hullParams;
+    const auto result = findConvexHulls(image, contourParams, hullParams);
+
+    ASSERT_EQ(result.infos.size(), 1u);
+    EXPECT_FALSE(result.infos[0].convex);  // cv::isContourConvex
+    // The hull bridges the U opening: a 49 x 39 rectangle
+    EXPECT_EQ(result.infos[0].hullPointCount, 4);
+    EXPECT_NEAR(result.infos[0].hullArea, 49.0 * 39.0, 3.0);
+
+    cv::Mat diff;
+    cv::absdiff(result.image, image, diff);
+    EXPECT_GT(cv::countNonZero(diff), 0);
+}
+
+TEST(BinaryTest, ConvexHullReportsConvexShapes)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(20, 20, 40, 30), cv::Scalar(255), cv::FILLED);
+
+    ContourParams contourParams;
+    ConvexHullParams hullParams;
+    const auto result = findConvexHulls(image, contourParams, hullParams);
+
+    ASSERT_EQ(result.infos.size(), 1u);
+    const auto &info = result.infos[0];
+    EXPECT_TRUE(info.convex);
+    EXPECT_EQ(info.hullPointCount, 4);
+    // A convex shape's hull equals the contour itself
+    EXPECT_NEAR(info.hullArea, 39.0 * 29.0, 2.0);
+    EXPECT_NEAR(info.hullPerimeter, 2.0 * (39.0 + 29.0), 2.0);
+}
+
+TEST(BinaryTest, ConvexHullIndexModeMatchesPointMode)
+{
+    cv::Mat image(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(image, cv::Rect(10, 10, 20, 20), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(image, cv::Rect(20, 50, 50, 10), cv::Scalar(255), cv::FILLED);
+
+    ContourParams contourParams;
+    ConvexHullParams pointsParams;
+    pointsParams.returnPoints = true;
+    ConvexHullParams indicesParams;
+    indicesParams.returnPoints = false;
+
+    const auto points =
+        findConvexHulls(image, contourParams, pointsParams);
+    const auto indices =
+        findConvexHulls(image, contourParams, indicesParams);
+
+    ASSERT_EQ(points.infos.size(), indices.infos.size());
+    ASSERT_EQ(points.infos.size(), 2u);
+    for (size_t i = 0; i < points.infos.size(); ++i) {
+        EXPECT_EQ(points.infos[i].hullPointCount,
+                  indices.infos[i].hullPointCount);
+        EXPECT_NEAR(points.infos[i].hullArea, indices.infos[i].hullArea, 1e-9);
+        EXPECT_EQ(points.infos[i].convex, indices.infos[i].convex);
+    }
+
+    // The hull orientation parameter is accepted in both modes
+    pointsParams.clockwise = true;
+    indicesParams.clockwise = true;
+    const auto clockwisePoints =
+        findConvexHulls(image, contourParams, pointsParams);
+    const auto clockwiseIndices =
+        findConvexHulls(image, contourParams, indicesParams);
+    ASSERT_EQ(clockwisePoints.infos.size(), 2u);
+    for (size_t i = 0; i < clockwisePoints.infos.size(); ++i) {
+        EXPECT_NEAR(clockwisePoints.infos[i].hullArea,
+                    clockwiseIndices.infos[i].hullArea, 1e-9);
+    }
 }

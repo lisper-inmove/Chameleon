@@ -38,6 +38,7 @@
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
 #include "ui/contour_match_dialog.h"
+#include "ui/convex_hull_dialog.h"
 #include "ui/hough_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
@@ -57,6 +58,7 @@ using chameleon::BackProjectDialog;
 using chameleon::ConnectedComponentsDialog;
 using chameleon::ContourDialog;
 using chameleon::ContourMatchDialog;
+using chameleon::ConvexHullDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::HoughDialog;
 using chameleon::EdgeDialog;
@@ -1490,6 +1492,74 @@ TEST_F(MainWindowTest, ContourMatchDialogMatchesATemplate)
     QCoreApplication::processEvents();
     QFile::remove(queryPath);
     QFile::remove(templatePath);
+}
+
+TEST_F(MainWindowTest, ConvexHullDialogReportsConvexity)
+{
+    const QString path = QDir::tempPath() + "/chameleon_convex_ui.png";
+    QFile::remove(path);
+    cv::Mat image(160, 160, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(image, cv::Rect(10, 10, 30, 30), cv::Scalar::all(255),
+                  cv::FILLED);  // convex
+    cv::rectangle(image, cv::Rect(80, 20, 10, 40), cv::Scalar::all(255),
+                  cv::FILLED);  // U shape (concave)
+    cv::rectangle(image, cv::Rect(120, 20, 10, 40), cv::Scalar::all(255),
+                  cv::FILLED);
+    cv::rectangle(image, cv::Rect(80, 50, 50, 10), cv::Scalar::all(255),
+                  cv::FILLED);
+    ASSERT_TRUE(
+        chameleon::ImageIO::imwriteUtf8(path.toStdString(), image));
+
+    AppState::instance()->openImages({path});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *button = s_window->findChild<QToolButton *>("convexHullButton");
+    ASSERT_NE(button, nullptr);
+    button->click();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<ConvexHullDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *clockwiseCheck =
+        dialog->findChild<QCheckBox *>("convexClockwiseCheck");
+    auto *returnPointsCheck =
+        dialog->findChild<QCheckBox *>("convexReturnPointsCheck");
+    auto *applyButton =
+        dialog->findChild<QPushButton *>("convexHullApplyButton");
+    auto *table = dialog->findChild<QTableWidget *>("convexHullTable");
+    auto *countLabel = dialog->findChild<QLabel *>("convexHullCountLabel");
+    ASSERT_NE(clockwiseCheck, nullptr);
+    ASSERT_NE(returnPointsCheck, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(table, nullptr);
+    ASSERT_NE(countLabel, nullptr);
+    EXPECT_TRUE(returnPointsCheck->isChecked());
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    ASSERT_EQ(table->rowCount(), 2);
+    EXPECT_EQ(table->columnCount(), 5);
+    bool hasConvex = false;
+    bool hasConcave = false;
+    for (int row = 0; row < table->rowCount(); ++row) {
+        const QString convexity = table->item(row, 1)->text();
+        if (convexity == QStringLiteral("是"))
+            hasConvex = true;
+        if (convexity == QStringLiteral("否"))
+            hasConcave = true;
+    }
+    EXPECT_TRUE(hasConvex);
+    EXPECT_TRUE(hasConcave);
+    EXPECT_TRUE(countLabel->text().contains(QStringLiteral("凸")));
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    dialog->close();
+    QCoreApplication::processEvents();
+    QFile::remove(path);
 }
 
 TEST_F(MainWindowTest, HoughDialogExposesParametersAndApplies)

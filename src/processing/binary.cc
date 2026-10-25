@@ -451,6 +451,58 @@ DetectedContours detectContours(const cv::Mat &image,
     return result;
 }
 
+ConvexHullResult findConvexHulls(const cv::Mat &image,
+                                 const ContourParams &contourParams,
+                                 const ConvexHullParams &hullParams)
+{
+    ConvexHullResult result;
+    if (image.empty())
+        return result;
+
+    const DetectedContours detected = detectContours(image, contourParams);
+    result.image = image.clone();
+    if (detected.contours.empty())
+        return result;
+
+    cv::drawContours(result.image, detected.contours, -1,
+                     outlineColor(result.image.channels()), 1, cv::LINE_AA);
+    drawContourNumbers(result.image, detected.infos);
+
+    const cv::Scalar hullColor = fitColor(result.image.channels());
+    result.infos.reserve(detected.contours.size());
+    for (size_t i = 0; i < detected.contours.size(); ++i) {
+        const std::vector<cv::Point> &contour = detected.contours[i];
+
+        std::vector<cv::Point> hullPoints;
+        if (hullParams.returnPoints) {
+            cv::convexHull(contour, hullPoints, hullParams.clockwise, true);
+        } else {
+            // Indices into the source contour; map them back for drawing
+            std::vector<int> indices;
+            cv::convexHull(contour, indices, hullParams.clockwise, false);
+            hullPoints.reserve(indices.size());
+            for (const int index : indices) {
+                if (index >= 0 && size_t(index) < contour.size())
+                    hullPoints.push_back(contour[size_t(index)]);
+            }
+        }
+
+        ConvexHullInfo info;
+        info.index = detected.infos[i].index;
+        info.convex = cv::isContourConvex(contour);
+        info.hullPointCount = int(hullPoints.size());
+        info.hullArea = cv::contourArea(hullPoints);
+        info.hullPerimeter = cv::arcLength(hullPoints, true);
+        result.infos.push_back(info);
+
+        if (hullPoints.size() >= 2) {
+            cv::polylines(result.image, hullPoints, true, hullColor, 2,
+                          cv::LINE_AA);
+        }
+    }
+    return result;
+}
+
 ContourFitResult findAndFitContours(const cv::Mat &image,
                                     const ContourParams &contourParams,
                                     const ContourFitParams &fitParams)

@@ -583,6 +583,17 @@ ContourMatchResult ImageViewerWidget::applyContourMatch(
     return result;
 }
 
+ConvexHullResult ImageViewerWidget::applyConvexHull(
+    const ContourParams &contourParams, const ConvexHullParams &hullParams)
+{
+    ConvexHullResult result;
+    applyOperation([&contourParams, &hullParams, &result](const cv::Mat &image) {
+        result = chameleon::findConvexHulls(image, contourParams, hullParams);
+        return result.image;
+    });
+    return result;
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo

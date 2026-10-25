@@ -120,6 +120,9 @@ public:
     // One-shot contour shape matching against a template image; undoable
     ContourMatchResult applyContourMatch(const cv::Mat &templateImage,
                                          const ContourMatchParams &params);
+    // One-shot convex hull detection; undoable
+    ConvexHullResult applyConvexHull(const ContourParams &contourParams,
+                                     const ConvexHullParams &hullParams);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);

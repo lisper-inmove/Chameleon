@@ -35,6 +35,7 @@
 #include "ui/connected_components_dialog.h"
 #include "ui/contour_dialog.h"
 #include "ui/contour_match_dialog.h"
+#include "ui/convex_hull_dialog.h"
 #include "ui/hough_dialog.h"
 #include "rendering/opengl_image.h"
 #include "ui/convolution_dialog.h"
@@ -464,6 +465,14 @@ void MainWindow::setupToolBar()
     connect(contourMatchButton, &QToolButton::clicked,
             this, &MainWindow::matchContourShapes);
     toolBar->addWidget(contourMatchButton);
+
+    auto *convexHullButton = new QToolButton(toolBar);
+    convexHullButton->setText(QStringLiteral("凸包..."));
+    convexHullButton->setObjectName("convexHullButton");
+    convexHullButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    connect(convexHullButton, &QToolButton::clicked,
+            this, &MainWindow::openConvexHullDialog);
+    toolBar->addWidget(convexHullButton);
 
     auto *houghButton = new QToolButton(toolBar);
     houghButton->setText(QStringLiteral("霍夫..."));
@@ -962,6 +971,26 @@ void MainWindow::matchContourShapes()
                     QStringLiteral("已匹配 %1 个轮廓,最佳 #%2")
                         .arg(result.matches.size())
                         .arg(result.bestIndex),
+                    2500);
+            });
+    dialog->show();
+}
+
+void MainWindow::openConvexHullDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<ConvexHullDialog>(this))
+        return;
+    auto *dialog = new ConvexHullDialog(this);
+    connect(dialog, &ConvexHullDialog::applyRequested, this,
+            [this, dialog] {
+                const auto result = m_viewer->applyConvexHull(
+                    ContourParams{}, dialog->hullParams());
+                dialog->setResult(result);
+                statusBar()->showMessage(
+                    QStringLiteral("凸包检测完成(%1 个轮廓)")
+                        .arg(result.infos.size()),
                     2500);
             });
     dialog->show();
