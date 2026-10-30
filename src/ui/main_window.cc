@@ -37,6 +37,7 @@
 #include "ui/contour_match_dialog.h"
 #include "ui/convex_hull_dialog.h"
 #include "ui/hough_dialog.h"
+#include "ui/morphology_dialog.h"
 #include "rendering/opengl_image.h"
 #include "ui/convolution_dialog.h"
 #include "ui/edge_dialog.h"
@@ -394,93 +395,68 @@ void MainWindow::setupToolBar()
     histogramButton->setMenu(histogramMenu);
     toolBar->addWidget(histogramButton);
 
-    auto *convolutionButton = new QToolButton(toolBar);
-    convolutionButton->setText(QStringLiteral("卷积..."));
-    convolutionButton->setObjectName("convolutionButton");
-    convolutionButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(convolutionButton, &QToolButton::clicked,
-            this, &MainWindow::openConvolutionDialog);
-    toolBar->addWidget(convolutionButton);
+    // Tool groups: related tools live in a drop-down menu on one toolbar
+    // entry (like the histogram menu above)
+    const auto addGroup = [toolBar](const QString &title,
+                                    const char *objectName) {
+        auto *button = new QToolButton(toolBar);
+        button->setText(title);
+        button->setObjectName(QString::fromUtf8(objectName));
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setPopupMode(QToolButton::InstantPopup);
+        auto *menu = new QMenu(button);
+        button->setMenu(menu);
+        toolBar->addWidget(button);
+        return menu;
+    };
 
-    auto *gradientButton = new QToolButton(toolBar);
-    gradientButton->setText(QStringLiteral("梯度..."));
-    gradientButton->setObjectName("gradientButton");
-    gradientButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(gradientButton, &QToolButton::clicked,
-            this, &MainWindow::openGradientDialog);
-    toolBar->addWidget(gradientButton);
+    auto *filterMenu =
+        addGroup(QStringLiteral("滤波增强"), "filterMenuButton");
+    auto *convolutionAction = filterMenu->addAction(
+        QStringLiteral("卷积 / 模糊..."), this,
+        &MainWindow::openConvolutionDialog);
+    convolutionAction->setObjectName("convolutionAction");
+    auto *gradientAction = filterMenu->addAction(
+        QStringLiteral("梯度提取..."), this, &MainWindow::openGradientDialog);
+    gradientAction->setObjectName("gradientAction");
+    auto *edgeAction = filterMenu->addAction(
+        QStringLiteral("边缘检测(Canny)..."), this, &MainWindow::openEdgeDialog);
+    edgeAction->setObjectName("edgeAction");
+    auto *noiseAction = filterMenu->addAction(
+        QStringLiteral("噪声与去噪..."), this, &MainWindow::openNoiseDialog);
+    noiseAction->setObjectName("noiseAction");
+    auto *sharpenAction = filterMenu->addAction(
+        QStringLiteral("拉普拉斯锐化..."), this,
+        &MainWindow::openSharpenDialog);
+    sharpenAction->setObjectName("sharpenAction");
+    auto *morphologyAction = filterMenu->addAction(
+        QStringLiteral("形态学分析..."), this,
+        &MainWindow::openMorphologyDialog);
+    morphologyAction->setObjectName("morphologyAction");
 
-    auto *edgeButton = new QToolButton(toolBar);
-    edgeButton->setText(QStringLiteral("边缘..."));
-    edgeButton->setObjectName("edgeButton");
-    edgeButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(edgeButton, &QToolButton::clicked,
-            this, &MainWindow::openEdgeDialog);
-    toolBar->addWidget(edgeButton);
-
-    auto *noiseButton = new QToolButton(toolBar);
-    noiseButton->setText(QStringLiteral("噪声..."));
-    noiseButton->setObjectName("noiseButton");
-    noiseButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(noiseButton, &QToolButton::clicked,
-            this, &MainWindow::openNoiseDialog);
-    toolBar->addWidget(noiseButton);
-
-    auto *sharpenButton = new QToolButton(toolBar);
-    sharpenButton->setText(QStringLiteral("锐化..."));
-    sharpenButton->setObjectName("sharpenButton");
-    sharpenButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(sharpenButton, &QToolButton::clicked,
-            this, &MainWindow::openSharpenDialog);
-    toolBar->addWidget(sharpenButton);
-
-    auto *thresholdButton = new QToolButton(toolBar);
-    thresholdButton->setText(QStringLiteral("二值..."));
-    thresholdButton->setObjectName("thresholdButton");
-    thresholdButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(thresholdButton, &QToolButton::clicked,
-            this, &MainWindow::openThresholdDialog);
-    toolBar->addWidget(thresholdButton);
-
-    auto *connectedComponentsButton = new QToolButton(toolBar);
-    connectedComponentsButton->setText(QStringLiteral("连通域..."));
-    connectedComponentsButton->setObjectName("connectedComponentsButton");
-    connectedComponentsButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(connectedComponentsButton, &QToolButton::clicked,
-            this, &MainWindow::openConnectedComponentsDialog);
-    toolBar->addWidget(connectedComponentsButton);
-
-    auto *contourButton = new QToolButton(toolBar);
-    contourButton->setText(QStringLiteral("轮廓..."));
-    contourButton->setObjectName("contourButton");
-    contourButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(contourButton, &QToolButton::clicked,
-            this, &MainWindow::openContourDialog);
-    toolBar->addWidget(contourButton);
-
-    auto *contourMatchButton = new QToolButton(toolBar);
-    contourMatchButton->setText(QStringLiteral("形状匹配..."));
-    contourMatchButton->setObjectName("contourMatchButton");
-    contourMatchButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(contourMatchButton, &QToolButton::clicked,
-            this, &MainWindow::matchContourShapes);
-    toolBar->addWidget(contourMatchButton);
-
-    auto *convexHullButton = new QToolButton(toolBar);
-    convexHullButton->setText(QStringLiteral("凸包..."));
-    convexHullButton->setObjectName("convexHullButton");
-    convexHullButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(convexHullButton, &QToolButton::clicked,
-            this, &MainWindow::openConvexHullDialog);
-    toolBar->addWidget(convexHullButton);
-
-    auto *houghButton = new QToolButton(toolBar);
-    houghButton->setText(QStringLiteral("霍夫..."));
-    houghButton->setObjectName("houghButton");
-    houghButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(houghButton, &QToolButton::clicked,
-            this, &MainWindow::openHoughDialog);
-    toolBar->addWidget(houghButton);
+    auto *contourMenu =
+        addGroup(QStringLiteral("二值轮廓"), "contourMenuButton");
+    auto *thresholdAction = contourMenu->addAction(
+        QStringLiteral("二值化分割..."), this,
+        &MainWindow::openThresholdDialog);
+    thresholdAction->setObjectName("thresholdAction");
+    auto *connectedComponentsAction = contourMenu->addAction(
+        QStringLiteral("连通域标记..."), this,
+        &MainWindow::openConnectedComponentsDialog);
+    connectedComponentsAction->setObjectName("connectedComponentsAction");
+    auto *contourAction = contourMenu->addAction(
+        QStringLiteral("轮廓发现..."), this, &MainWindow::openContourDialog);
+    contourAction->setObjectName("contourAction");
+    auto *convexHullAction = contourMenu->addAction(
+        QStringLiteral("凸包检测..."), this,
+        &MainWindow::openConvexHullDialog);
+    convexHullAction->setObjectName("convexHullAction");
+    auto *contourMatchAction = contourMenu->addAction(
+        QStringLiteral("轮廓匹配..."), this, &MainWindow::matchContourShapes);
+    contourMatchAction->setObjectName("contourMatchAction");
+    auto *houghAction = contourMenu->addAction(
+        QStringLiteral("霍夫变换..."), this, &MainWindow::openHoughDialog);
+    houghAction->setObjectName("houghAction");
 
     auto *geometryButton = new QToolButton(toolBar);
     geometryButton->setText(QStringLiteral("几何..."));
@@ -992,6 +968,22 @@ void MainWindow::openConvexHullDialog()
                     QStringLiteral("凸包检测完成(%1 个轮廓)")
                         .arg(result.infos.size()),
                     2500);
+            });
+    dialog->show();
+}
+
+void MainWindow::openMorphologyDialog()
+{
+    if (m_viewer->currentImage().empty())
+        return;
+    if (focusExisting<MorphologyDialog>(this))
+        return;
+    auto *dialog = new MorphologyDialog(this);
+    connect(dialog, &MorphologyDialog::applyRequested, this,
+            [this, dialog] {
+                m_viewer->applyMorphology(dialog->morphologyParams());
+                statusBar()->showMessage(
+                    QStringLiteral("已应用形态学分析"), 2500);
             });
     dialog->show();
 }

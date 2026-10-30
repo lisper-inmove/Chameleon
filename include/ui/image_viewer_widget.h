@@ -20,6 +20,7 @@
 #include "processing/filter_processor.h"
 #include "processing/geometry.h"
 #include "processing/hough.h"
+#include "processing/morphology.h"
 #include "processing/noise.h"
 
 namespace chameleon {
@@ -123,6 +124,8 @@ public:
     // One-shot convex hull detection; undoable
     ConvexHullResult applyConvexHull(const ContourParams &contourParams,
                                      const ConvexHullParams &hullParams);
+    // One-shot morphology (dilate / erode); undoable
+    void applyMorphology(const MorphologyParams &params);
     // One-shot noise addition; undoable
     void addSaltPepperNoise(const SaltPepperParams &params);
     void addGaussianNoise(const GaussianNoiseParams &params);

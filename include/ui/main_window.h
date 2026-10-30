@@ -45,6 +45,7 @@ private:
     void openEdgeDialog();
     void openNoiseDialog();
     void openSharpenDialog();
+    void openMorphologyDialog();
     void openThresholdDialog();
     void openConnectedComponentsDialog();
     void openContourDialog();

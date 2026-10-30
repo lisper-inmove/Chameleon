@@ -20,6 +20,7 @@ target_sources(chameleon_lib PRIVATE
     include/processing/histogram.h
     include/processing/hough.h
     include/processing/image_io.h
+    include/processing/morphology.h
     include/processing/noise.h
     include/rendering/opengl_image.h
     include/ui/back_project_dialog.h
@@ -33,6 +34,7 @@ target_sources(chameleon_lib PRIVATE
     include/ui/geometry_dialog.h
     include/ui/gradient_dialog.h
     include/ui/hough_dialog.h
+    include/ui/morphology_dialog.h
     include/ui/noise_dialog.h
     include/ui/sharpen_dialog.h
     include/ui/threshold_dialog.h
@@ -53,6 +55,7 @@ target_sources(chameleon_lib PRIVATE
     src/processing/histogram.cc
     src/processing/hough.cc
     src/processing/image_io.cc
+    src/processing/morphology.cc
     src/processing/noise.cc
     src/rendering/opengl_image.cc
     src/ui/back_project_dialog.cc
@@ -66,6 +69,7 @@ target_sources(chameleon_lib PRIVATE
     src/ui/geometry_dialog.cc
     src/ui/gradient_dialog.cc
     src/ui/hough_dialog.cc
+    src/ui/morphology_dialog.cc
     src/ui/noise_dialog.cc
     src/ui/sharpen_dialog.cc
     src/ui/threshold_dialog.cc

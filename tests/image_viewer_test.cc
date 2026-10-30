@@ -20,6 +20,7 @@
 #include "processing/geometry.h"
 #include "processing/hough.h"
 #include "processing/image_io.h"
+#include "processing/morphology.h"
 #include "ui/image_viewer_widget.h"
 
 using chameleon::AppState;
@@ -1151,6 +1152,26 @@ TEST_F(ImageViewerTest, ContourMatchingWithATemplateIsUndoable)
 
     QFile::remove(queryPath);
     QFile::remove(templatePath);
+}
+
+TEST_F(ImageViewerTest, MorphologyIsAppliedAndUndoable)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    m_viewer->setImage(AppState::instance()->currentImage());
+    ASSERT_TRUE(waitForStatus(m_viewer, ImageViewerWidget::Ready));
+    const cv::Mat original = m_viewer->currentImage().clone();
+
+    chameleon::MorphologyParams params;  // dilate, 3x3 rectangle
+    m_viewer->applyMorphology(params);
+
+    cv::Mat diff;
+    cv::absdiff(m_viewer->currentImage(), original, diff);
+    EXPECT_GT(cv::countNonZero(diff.reshape(1)), 0);
+
+    m_viewer->undo();
+    cv::Mat restored;
+    cv::absdiff(m_viewer->currentImage(), original, restored);
+    EXPECT_EQ(cv::countNonZero(restored.reshape(1)), 0);
 }
 
 TEST_F(ImageViewerTest, SaveAsWritesPng)

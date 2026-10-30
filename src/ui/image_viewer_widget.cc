@@ -594,6 +594,13 @@ ConvexHullResult ImageViewerWidget::applyConvexHull(
     return result;
 }
 
+void ImageViewerWidget::applyMorphology(const MorphologyParams &params)
+{
+    applyOperation([params](const cv::Mat &image) {
+        return chameleon::applyMorphology(image, params);
+    });
+}
+
 void ImageViewerWidget::addSaltPepperNoise(const SaltPepperParams &params)
 {
     // A fresh random seed per invocation; repeated calls differ, undo

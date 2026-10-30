@@ -40,6 +40,7 @@
 #include "ui/contour_match_dialog.h"
 #include "ui/convex_hull_dialog.h"
 #include "ui/hough_dialog.h"
+#include "ui/morphology_dialog.h"
 #include "ui/edge_dialog.h"
 #include "ui/noise_dialog.h"
 #include "ui/sharpen_dialog.h"
@@ -61,6 +62,7 @@ using chameleon::ContourMatchDialog;
 using chameleon::ConvexHullDialog;
 using chameleon::ConvolutionDialog;
 using chameleon::HoughDialog;
+using chameleon::MorphologyDialog;
 using chameleon::EdgeDialog;
 using chameleon::NoiseDialog;
 using chameleon::SharpenDialog;
@@ -135,6 +137,14 @@ protected:
         return s_window->findChild<QAction *>(name);
     }
 
+    // Triggers a grouped toolbar tool (they live in drop-down menus)
+    void clickTool(const char *actionName)
+    {
+        auto *toolAction = action(actionName);
+        ASSERT_NE(toolAction, nullptr);
+        toolAction->trigger();
+    }
+
     static MainWindow *s_window;
 };
 
@@ -171,6 +181,22 @@ TEST_F(MainWindowTest, HasMenusToolbarDocksAndViewer)
     EXPECT_NE(action("saveAction"), nullptr);
     EXPECT_NE(action("fitAction"), nullptr);
     EXPECT_NE(action("actualAction"), nullptr);
+
+    // Processing tools are grouped into drop-down menus (like 直方图)
+    auto *filterButton = s_window->findChild<QToolButton *>("filterMenuButton");
+    auto *contourButton = s_window->findChild<QToolButton *>("contourMenuButton");
+    ASSERT_NE(filterButton, nullptr);
+    ASSERT_NE(contourButton, nullptr);
+    EXPECT_EQ(filterButton->text().toStdString(), "滤波增强");
+    EXPECT_EQ(contourButton->text().toStdString(), "二值轮廓");
+    ASSERT_NE(filterButton->menu(), nullptr);
+    ASSERT_NE(contourButton->menu(), nullptr);
+    EXPECT_EQ(filterButton->menu()->actions().size(), 6);
+    EXPECT_EQ(contourButton->menu()->actions().size(), 6);
+    EXPECT_NE(action("convolutionAction"), nullptr);
+    EXPECT_NE(action("morphologyAction"), nullptr);
+    EXPECT_NE(action("thresholdAction"), nullptr);
+    EXPECT_NE(action("houghAction"), nullptr);
 }
 
 TEST_F(MainWindowTest, EmptyStateShowsHintAndDisablesActions)
@@ -644,9 +670,7 @@ TEST_F(MainWindowTest, ConvolutionDialogExposesParamsAndApplies)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *convolutionButton = s_window->findChild<QToolButton *>("convolutionButton");
-    ASSERT_NE(convolutionButton, nullptr);
-    convolutionButton->click();
+    clickTool("convolutionAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ConvolutionDialog *>();
@@ -718,9 +742,7 @@ TEST_F(MainWindowTest, GradientDialogExposesParamsAndApplies)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *gradientButton = s_window->findChild<QToolButton *>("gradientButton");
-    ASSERT_NE(gradientButton, nullptr);
-    gradientButton->click();
+    clickTool("gradientAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<GradientDialog *>();
@@ -773,9 +795,7 @@ TEST_F(MainWindowTest, EdgeDialogExposesParamsAndApplies)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *edgeButton = s_window->findChild<QToolButton *>("edgeButton");
-    ASSERT_NE(edgeButton, nullptr);
-    edgeButton->click();
+    clickTool("edgeAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<EdgeDialog *>();
@@ -817,9 +837,7 @@ TEST_F(MainWindowTest, NoiseDialogExposesParamsAndApplies)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *noiseButton = s_window->findChild<QToolButton *>("noiseButton");
-    ASSERT_NE(noiseButton, nullptr);
-    noiseButton->click();
+    clickTool("noiseAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<NoiseDialog *>();
@@ -878,21 +896,21 @@ TEST_F(MainWindowTest, ToolbarDialogsAreUnique)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto clickTwice = [this](const char *buttonName) {
-        auto *button = s_window->findChild<QToolButton *>(buttonName);
-        EXPECT_NE(button, nullptr);
-        if (button) {
-            button->click();
+    auto clickTwice = [this](const char *actionName) {
+        auto *toolAction = s_window->findChild<QAction *>(actionName);
+        EXPECT_NE(toolAction, nullptr);
+        if (toolAction) {
+            toolAction->trigger();
             QCoreApplication::processEvents();
-            button->click();
+            toolAction->trigger();
             QCoreApplication::processEvents();
         }
     };
 
-    clickTwice("convolutionButton");
-    clickTwice("gradientButton");
-    clickTwice("edgeButton");
-    clickTwice("noiseButton");
+    clickTwice("convolutionAction");
+    clickTwice("gradientAction");
+    clickTwice("edgeAction");
+    clickTwice("noiseAction");
     EXPECT_EQ(s_window->findChildren<ConvolutionDialog *>().size(), 1);
     EXPECT_EQ(s_window->findChildren<GradientDialog *>().size(), 1);
     EXPECT_EQ(s_window->findChildren<EdgeDialog *>().size(), 1);
@@ -903,7 +921,7 @@ TEST_F(MainWindowTest, ToolbarDialogsAreUnique)
     auto *kernelSpin = dialog->findChild<QSpinBox *>("convolutionKernelSpin");
     ASSERT_NE(kernelSpin, nullptr);
     kernelSpin->setValue(7);
-    clickTwice("convolutionButton");
+    clickTwice("convolutionAction");
     EXPECT_EQ(s_window->findChildren<ConvolutionDialog *>().size(), 1);
     EXPECT_EQ(s_window->findChild<QSpinBox *>("convolutionKernelSpin")->value(), 7);
 
@@ -992,9 +1010,7 @@ TEST_F(MainWindowTest, SharpenDialogExposesParamsAndSharpness)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *sharpenButton = s_window->findChild<QToolButton *>("sharpenButton");
-    ASSERT_NE(sharpenButton, nullptr);
-    sharpenButton->click();
+    clickTool("sharpenAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<SharpenDialog *>();
@@ -1113,9 +1129,7 @@ TEST_F(MainWindowTest, ThresholdDialogExposesParamsAndApplies)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *thresholdButton = s_window->findChild<QToolButton *>("thresholdButton");
-    ASSERT_NE(thresholdButton, nullptr);
-    thresholdButton->click();
+    clickTool("thresholdAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ThresholdDialog *>();
@@ -1152,9 +1166,7 @@ TEST_F(MainWindowTest, ThresholdDialogExposesAutoMethods)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *thresholdButton = s_window->findChild<QToolButton *>("thresholdButton");
-    ASSERT_NE(thresholdButton, nullptr);
-    thresholdButton->click();
+    clickTool("thresholdAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ThresholdDialog *>();
@@ -1210,9 +1222,7 @@ TEST_F(MainWindowTest, ConnectedComponentsDialogComputesAndShows)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *button = s_window->findChild<QToolButton *>("connectedComponentsButton");
-    ASSERT_NE(button, nullptr);
-    button->click();
+    clickTool("connectedComponentsAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ConnectedComponentsDialog *>();
@@ -1256,9 +1266,7 @@ TEST_F(MainWindowTest, ContourDialogAppliesAndShowsTheCount)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *button = s_window->findChild<QToolButton *>("contourButton");
-    ASSERT_NE(button, nullptr);
-    button->click();
+    clickTool("contourAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ContourDialog *>();
@@ -1346,9 +1354,7 @@ TEST_F(MainWindowTest, ContourFitButtonsApplyAndListResults)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *button = s_window->findChild<QToolButton *>("contourButton");
-    ASSERT_NE(button, nullptr);
-    button->click();
+    clickTool("contourAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ContourDialog *>();
@@ -1448,9 +1454,7 @@ TEST_F(MainWindowTest, ContourMatchDialogMatchesATemplate)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *button = s_window->findChild<QToolButton *>("contourMatchButton");
-    ASSERT_NE(button, nullptr);
-    button->click();
+    clickTool("contourMatchAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ContourMatchDialog *>();
@@ -1515,9 +1519,7 @@ TEST_F(MainWindowTest, ConvexHullDialogReportsConvexity)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *button = s_window->findChild<QToolButton *>("convexHullButton");
-    ASSERT_NE(button, nullptr);
-    button->click();
+    clickTool("convexHullAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<ConvexHullDialog *>();
@@ -1562,6 +1564,85 @@ TEST_F(MainWindowTest, ConvexHullDialogReportsConvexity)
     QFile::remove(path);
 }
 
+TEST_F(MainWindowTest, MorphologyDialogAppliesAndUndoes)
+{
+    AppState::instance()->openImages({TEST_DATA_DIR "/test_image.png"});
+    QCoreApplication::processEvents();
+    auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
+    ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
+
+    auto *morphologyAction = action("morphologyAction");
+    ASSERT_NE(morphologyAction, nullptr);
+    EXPECT_TRUE(morphologyAction->text().contains(QStringLiteral("形态学分析")));
+    morphologyAction->trigger();
+    QCoreApplication::processEvents();
+
+    auto *dialog = s_window->findChild<MorphologyDialog *>();
+    ASSERT_NE(dialog, nullptr);
+    auto *operationCombo =
+        dialog->findChild<QComboBox *>("morphologyOperationCombo");
+    auto *methodCombo =
+        dialog->findChild<QComboBox *>("morphologyMethodCombo");
+    auto *shapeCombo =
+        dialog->findChild<QComboBox *>("morphologyShapeCombo");
+    auto *widthSpin = dialog->findChild<QSpinBox *>("morphologyWidthSpin");
+    auto *heightSpin = dialog->findChild<QSpinBox *>("morphologyHeightSpin");
+    auto *anchorXSpin =
+        dialog->findChild<QSpinBox *>("morphologyAnchorXSpin");
+    auto *anchorYSpin =
+        dialog->findChild<QSpinBox *>("morphologyAnchorYSpin");
+    auto *iterationsSpin =
+        dialog->findChild<QSpinBox *>("morphologyIterationsSpin");
+    auto *borderCombo =
+        dialog->findChild<QComboBox *>("morphologyBorderCombo");
+    auto *borderValueSpin =
+        dialog->findChild<QSpinBox *>("morphologyBorderValueSpin");
+    auto *applyButton =
+        dialog->findChild<QPushButton *>("morphologyApplyButton");
+    ASSERT_NE(operationCombo, nullptr);
+    ASSERT_NE(methodCombo, nullptr);
+    ASSERT_NE(shapeCombo, nullptr);
+    ASSERT_NE(widthSpin, nullptr);
+    ASSERT_NE(heightSpin, nullptr);
+    ASSERT_NE(anchorXSpin, nullptr);
+    ASSERT_NE(anchorYSpin, nullptr);
+    ASSERT_NE(iterationsSpin, nullptr);
+    ASSERT_NE(borderCombo, nullptr);
+    ASSERT_NE(borderValueSpin, nullptr);
+    ASSERT_NE(applyButton, nullptr);
+    // dilate / erode / open / close / three gradients
+    EXPECT_EQ(operationCombo->count(), 7);
+    EXPECT_EQ(methodCombo->count(), 2);     // morphologyEx / combined
+    EXPECT_EQ(shapeCombo->count(), 3);      // rect / cross / ellipse
+    EXPECT_EQ(borderCombo->count(), 5);
+    EXPECT_EQ(anchorXSpin->value(), -1);    // kernel centre
+    // The implementation choice only applies to open/close
+    EXPECT_FALSE(methodCombo->isEnabled());
+    operationCombo->setCurrentIndex(2);  // open
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(methodCombo->isEnabled());
+    methodCombo->setCurrentIndex(1);  // dilate + erode chain
+    QCoreApplication::processEvents();
+
+    const QImage before = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), before);
+    EXPECT_TRUE(action("undoAction")->isEnabled());
+
+    // Morphological gradient: basic gradient, method combo not applicable
+    operationCombo->setCurrentIndex(4);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(methodCombo->isEnabled());
+    const QImage beforeGradient = viewer->grab().toImage();
+    applyButton->click();
+    QCoreApplication::processEvents();
+    EXPECT_NE(viewer->grab().toImage(), beforeGradient);
+
+    dialog->close();
+    QCoreApplication::processEvents();
+}
+
 TEST_F(MainWindowTest, HoughDialogExposesParametersAndApplies)
 {
     // A vertical line for the HoughLines mode
@@ -1578,9 +1659,7 @@ TEST_F(MainWindowTest, HoughDialogExposesParametersAndApplies)
     auto *viewer = s_window->findChild<ImageViewerWidget *>("imageViewer");
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    auto *button = s_window->findChild<QToolButton *>("houghButton");
-    ASSERT_NE(button, nullptr);
-    button->click();
+    clickTool("houghAction");
     QCoreApplication::processEvents();
 
     auto *dialog = s_window->findChild<HoughDialog *>();
@@ -1663,7 +1742,7 @@ TEST_F(MainWindowTest, HoughDialogExposesParametersAndApplies)
     QCoreApplication::processEvents();
     ASSERT_TRUE(waitForStatus(viewer, ImageViewerWidget::Ready));
 
-    button->click();
+    clickTool("houghAction");
     QCoreApplication::processEvents();
     dialog = s_window->findChild<HoughDialog *>();
     ASSERT_NE(dialog, nullptr);
